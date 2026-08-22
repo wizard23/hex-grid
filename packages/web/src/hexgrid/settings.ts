@@ -2,10 +2,13 @@
  * User-facing grid settings. All lengths are millimetres; the exported SVG is
  * sized in mm so 1 user unit = 1 mm and prints true to size.
  */
-export type GridShape = {
-  /** number of hex columns / rows (odd-q offset layout in the local frame) */
+/** number of hex columns / rows (odd-q offset layout in the local frame) */
+export type GridSize = {
   columns: number;
   rows: number;
+};
+
+export type GridShape = GridSize & {
   /** hex side length (= circumradius) in mm */
   side: number;
   /** rotation of the whole grid, counter-clockwise degrees; 0 = pointy tip sideways */

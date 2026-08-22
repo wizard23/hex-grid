@@ -1,4 +1,4 @@
-import type { GridShape } from "./settings";
+import type { GridShape, GridSize } from "./settings";
 
 /**
  * Hex geometry. The *local frame* is an unrotated flat-top grid (vertex k of a
@@ -30,8 +30,8 @@ export function cellVertex(shape: GridShape, col: number, row: number, k: number
   return { x: c.x + v.x, y: c.y + v.y };
 }
 
-export function inGrid(shape: GridShape, col: number, row: number): boolean {
-  return col >= 0 && col < shape.columns && row >= 0 && row < shape.rows;
+export function inGrid(grid: GridSize, col: number, row: number): boolean {
+  return col >= 0 && col < grid.columns && row >= 0 && row < grid.rows;
 }
 
 // axial (q, r) step across edge k — the edge between vertex k and k+1
@@ -59,11 +59,25 @@ function axialToOffset(q: number, r: number): Cell {
 }
 
 /** the cell across edge k, or null when it lies outside the grid */
-export function neighbour(shape: GridShape, col: number, row: number, k: number): Cell | null {
+export function neighbour(grid: GridSize, col: number, row: number, k: number): Cell | null {
   const a = offsetToAxial(col, row);
   const s = axialStep(k);
   const n = axialToOffset(a.x + s.x, a.y + s.y);
-  return inGrid(shape, n.col, n.row) ? n : null;
+  return inGrid(grid, n.col, n.row) ? n : null;
+}
+
+export type Edge = Cell & { k: number };
+
+/**
+ * Every edge is shared by up to two cells; this names its single owner: edges
+ * 0–2 belong to the cell itself, edges 3–5 to the neighbour across them (as
+ * that neighbour's edge k−3) unless there is no neighbour.
+ */
+export function canonicalEdge(grid: GridSize, col: number, row: number, k: number): Edge {
+  const kk = ((k % 6) + 6) % 6;
+  if (kk < 3) return { col, row, k: kk };
+  const n = neighbour(grid, col, row, kk);
+  return n === null ? { col, row, k: kk } : { col: n.col, row: n.row, k: kk - 3 };
 }
 
 /** the cell containing a local-frame point, or null when outside the grid */

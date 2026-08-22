@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { Point } from "./geometry";
 import { parseDocument, serializeDocument, type GridDocument } from "./file";
-import { hitSpoke, type SpokeHit } from "./hit";
-import { ALL_SPOKES, createModel, fillModel, resizeModel, toggleSpoke } from "./model";
+import { hitLine, type LineHit } from "./hit";
+import { ALL_LINES, createModel, fillModel, hasLine, resizeModel, toggleLine, type LineKind } from "./model";
 import { clampSetting, DEFAULT_SETTINGS, LIMITS, type GridSettings, type NumericSetting } from "./settings";
 import { cellCenter, cellVertex, toWorld } from "./geometry";
-import { documentBounds, fmt, outlineSegments, spokeBands, toPathData, toSvgDocument, type SpokeBands } from "./svg";
+import { documentBounds, fmt, pathBands, toSvgDocument, type PathBands } from "./svg";
 
 /**
  * screen px = world mm · scale + (tx, ty). The view is applied through the
@@ -22,7 +22,7 @@ const DRAG_THRESHOLD_PX = 3;
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 400;
 const AUTOSAVE_DELAY_MS = 300;
-const SPOKE_BAND_ROWS = 8;
+const BAND_ROWS = 8;
 
 function freshDocument(): GridDocument {
   return { settings: DEFAULT_SETTINGS, model: createModel(DEFAULT_SETTINGS.columns, DEFAULT_SETTINGS.rows) };
@@ -50,24 +50,27 @@ function download(filename: string, type: string, content: string) {
 export function HexGridScreen() {
   const [doc, setDoc] = useState<GridDocument>(loadStoredDocument);
   const [view, setView] = useState<View>({ scale: 4, tx: 0, ty: 0 });
-  const [hover, setHover] = useState<SpokeHit | null>(null);
+  const [hover, setHover] = useState<LineHit | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fitted, setFitted] = useState(false);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
-  const bandCache = useRef<SpokeBands | undefined>(undefined);
+  const bandCache = useRef<Record<LineKind, PathBands | undefined>>({ spoke: undefined, edge: undefined });
 
   const { settings, model } = doc;
   const { columns, rows, side, orientationDeg, outlineWidth, spokeWidth } = settings;
   const shapeDeps = [columns, rows, side, orientationDeg];
 
-  // path strings are rebuilt only when the geometry (or the spokes) change — never on pan/zoom
-  const outlinePath = useMemo(() => toPathData(outlineSegments(settings)), shapeDeps);
+  // path strings are rebuilt only when the geometry or the lines change — never on pan/zoom
+  const outlinePaths = useMemo(() => {
+    bandCache.current.edge = pathBands("edge", settings, model, BAND_ROWS, bandCache.current.edge);
+    return bandCache.current.edge.paths;
+  }, [...shapeDeps, model]);
   const spokePaths = useMemo(() => {
-    bandCache.current = spokeBands(settings, model, SPOKE_BAND_ROWS, bandCache.current);
-    return bandCache.current.paths;
+    bandCache.current.spoke = pathBands("spoke", settings, model, BAND_ROWS, bandCache.current.spoke);
+    return bandCache.current.spoke.paths;
   }, [...shapeDeps, model]);
   const bounds = useMemo(() => documentBounds(settings), [...shapeDeps, outlineWidth, spokeWidth]);
 
@@ -138,16 +141,16 @@ export function HexGridScreen() {
     });
   }
 
-  function setSpokes(bits: number) {
-    setDoc((d) => ({ ...d, model: fillModel(d.model, bits) }));
+  function setLines(spokes: number, edges: number) {
+    setDoc((d) => ({ ...d, model: fillModel(d.model, spokes, edges) }));
   }
 
   function toWorldPoint(p: Point): Point {
     return { x: (p.x - view.tx) / view.scale, y: (p.y - view.ty) / view.scale };
   }
 
-  function hitAt(p: Point): SpokeHit | null {
-    return hitSpoke(settings, toWorldPoint(p), HIT_TOLERANCE_PX / view.scale);
+  function hitAt(p: Point): LineHit | null {
+    return hitLine(settings, toWorldPoint(p), HIT_TOLERANCE_PX / view.scale);
   }
 
   function onPointerDown(event: PointerEvent) {
@@ -186,7 +189,7 @@ export function HexGridScreen() {
     if (d.moved) return;
     const hit = hitAt(localPointer(svg, event));
     if (hit === null) return;
-    setDoc((current) => ({ ...current, model: toggleSpoke(current.model, hit.col, hit.row, hit.k) }));
+    setDoc((current) => ({ ...current, model: toggleLine(current.model, hit.kind, hit.col, hit.row, hit.k) }));
   }
 
   function onPointerLeave() {
@@ -217,6 +220,18 @@ export function HexGridScreen() {
   }
 
   const hoverLine = hover === null ? null : hoverSegment(settings, hover);
+  // the hovered line as it would be drawn, just dotted — in the background
+  // colour when it is on (the solid line visibly turns dotted), in the line's
+  // colour when it is off
+  const hoverWidth = hover?.kind === "edge" ? outlineWidth : spokeWidth;
+  const hoverColor =
+    hover === null
+      ? ""
+      : hasLine(model, hover.kind, hover.col, hover.row, hover.k)
+        ? settings.backgroundColor
+        : hover.kind === "edge"
+          ? settings.outlineColor
+          : settings.spokeColor;
   const viewportClass = `grid-viewport${dragging ? " dragging" : hover !== null ? " hovering" : ""}`;
   const paperWidth = bounds.maxX - bounds.minX;
   const paperHeight = bounds.maxY - bounds.minY;
@@ -239,11 +254,14 @@ export function HexGridScreen() {
             <ColorField label="Background" name="backgroundColor" settings={settings} onChange={updateSettings} />
           </div>
           <div class="actions">
-            <button type="button" onClick={() => setSpokes(0)}>
+            <button type="button" onClick={() => setLines(0, ALL_LINES)}>
               Hex grid
             </button>
-            <button type="button" onClick={() => setSpokes(ALL_SPOKES)}>
+            <button type="button" onClick={() => setLines(ALL_LINES, ALL_LINES)}>
               Triangle grid
+            </button>
+            <button type="button" onClick={() => setLines(0, 0)}>
+              Clear
             </button>
             <button type="button" onClick={fitView}>
               Fit
@@ -263,8 +281,8 @@ export function HexGridScreen() {
           </div>
           {error !== null && <p class="error">{error}</p>}
           <p class="hint">
-            Wheel zooms, left-drag pans, click a centre-to-corner line to toggle it. Sizes are millimetres; the
-            SVG prints true to size.
+            Wheel zooms, left-drag pans, click a hex edge or a centre-to-corner line to toggle it. Sizes are
+            millimetres; the SVG prints true to size.
           </p>
           <p class="grid-status">
             {columns * rows} cells · {fmt(paperWidth)} × {fmt(paperHeight)} mm · zoom {Math.round(view.scale * 100) / 100}{" "}
@@ -301,26 +319,29 @@ export function HexGridScreen() {
               stroke-linejoin="round"
             />
           ))}
-          <path
-            d={outlinePath}
-            fill="none"
-            stroke={settings.outlineColor}
-            stroke-width={outlineWidth}
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
+          {outlinePaths.map((d, band) => (
+            <path
+              key={band}
+              d={d}
+              fill="none"
+              stroke={settings.outlineColor}
+              stroke-width={outlineWidth}
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          ))}
           {hoverLine !== null && (
-            // a screen-space cursor hint: non-scaling-stroke keeps the 2 px
-            // dots evenly spaced at every zoom level
+            // round caps on zero-length dashes give dots one width across, spaced
+            // in multiples of the width, so the pattern looks the same at every zoom
             <line
               class="grid-hover"
               x1={hoverLine.a.x}
               y1={hoverLine.a.y}
               x2={hoverLine.b.x}
               y2={hoverLine.b.y}
-              vector-effect="non-scaling-stroke"
-              stroke-width="2"
-              stroke-dasharray="0 6"
+              stroke={hoverColor}
+              stroke-width={hoverWidth}
+              stroke-dasharray={`0 ${2.5 * hoverWidth}`}
               stroke-linecap="round"
             />
           )}
@@ -335,11 +356,10 @@ function localPointer(svg: SVGSVGElement, event: { clientX: number; clientY: num
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
-function hoverSegment(settings: GridSettings, hit: SpokeHit): { a: Point; b: Point } {
-  return {
-    a: toWorld(settings, cellCenter(settings, hit.col, hit.row)),
-    b: toWorld(settings, cellVertex(settings, hit.col, hit.row, hit.k)),
-  };
+function hoverSegment(settings: GridSettings, hit: LineHit): { a: Point; b: Point } {
+  const start = hit.kind === "edge" ? cellVertex(settings, hit.col, hit.row, hit.k) : cellCenter(settings, hit.col, hit.row);
+  const end = cellVertex(settings, hit.col, hit.row, hit.kind === "edge" ? hit.k + 1 : hit.k);
+  return { a: toWorld(settings, start), b: toWorld(settings, end) };
 }
 
 const STEPS: Record<NumericSetting, number> = {

@@ -91,9 +91,10 @@ Root causes and fixes (no geometry/export changes):
   hit-test math), which is a plain repaint every frame — always crisp.
 - **Hover line dotted only when zoomed out** — dash/gap were 3 screen px but the stroke
   width was `max(spokeWidth, 2/scale)` with round caps, so once the width passed 3 px the
-  caps swallowed the gaps. Fix: the hover line is a screen-space hint:
-  `vector-effect="non-scaling-stroke"`, `stroke-width="2"`, `stroke-dasharray="0 6"` — the
-  `/scale` arithmetic is gone.
+  caps swallowed the gaps. Fix: the hover line uses the triangle line's own width and
+  a dash pattern in multiples of that width (`stroke-dasharray="0 2.5·w"`, round caps →
+  dots one width across), so it is dotted at every zoom level — the `/scale` arithmetic is
+  gone.
 
 Zoom cost per wheel tick (headless Chromium, software raster, wall time until two frames
 after the tick, ~50 ms of which is driver overhead; all spokes on):
@@ -110,3 +111,18 @@ as sluggish where it previously read as "smooth but fuzzy". Kept as is; if large
 matter, the next step is explicit gesture phases (CSS transform on the viewport during
 the gesture, committed into the viewBox on pointer-up / wheel idle) — not done, pending a
 check on real GPU hardware.
+
+## Follow-up 2026-08-22: hover colour + toggleable hex edges
+
+- Hover uses the hovered line's own width and colour, only dotted. Over a line that is
+  already drawn, dots in the line colour would be invisible, so there the dots are drawn in
+  the background colour — the solid line visibly turns dotted. Both states read as "the
+  dotted version of this line".
+- Hex edges are editable like the spokes. The model gains one `edges` byte per cell
+  (default all on). A shared edge has exactly one owner (`canonicalEdge`: k < 3 → the cell,
+  k ≥ 3 → the neighbour's k−3, boundary edges stay with the cell), so generation still emits
+  every edge once and hover/click/toggle from either side address the same bit.
+  `hitLine` returns the nearer of the closest spoke and the closest edge.
+- The outline path is now banded like the spoke path (`pathBands(kind, …)`), since it is
+  rebuilt on clicks too. JSON format version 2 adds `edges`; version 1 still loads.
+- Presets: "Hex grid" = edges on / spokes off, "Triangle grid" = all on, "Clear" = all off.

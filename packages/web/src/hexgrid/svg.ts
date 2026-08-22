@@ -8,7 +8,7 @@ import {
   type Bounds,
   type Point,
 } from "./geometry";
-import { hasSpoke, type GridModel } from "./model";
+import { hasEdge, hasSpoke, type GridModel, type LineKind } from "./model";
 import type { GridSettings, GridShape, GridStyle } from "./settings";
 
 /**
@@ -17,14 +17,19 @@ import type { GridSettings, GridShape, GridStyle } from "./settings";
  */
 export type Segment = { a: Point; b: Point };
 
-/** every hex edge exactly once: a cell emits edge k when k < 3 or there is no neighbour */
-export function outlineSegments(shape: GridShape): Segment[] {
+/**
+ * The drawn hex edges, every edge exactly once: a cell emits edge k only when
+ * it owns it (k < 3, or there is no neighbour across it). Optionally only for
+ * the cells in rows [rowStart, rowEnd).
+ */
+export function outlineSegments(shape: GridShape, model: GridModel, rowStart = 0, rowEnd = shape.rows): Segment[] {
   const segments: Segment[] = [];
   const center = gridCenter(shape);
   for (let col = 0; col < shape.columns; col++) {
-    for (let row = 0; row < shape.rows; row++) {
+    for (let row = rowStart; row < rowEnd; row++) {
       for (let k = 0; k < 6; k++) {
         if (k >= 3 && neighbour(shape, col, row, k) !== null) continue;
+        if (!hasEdge(model, col, row, k)) continue;
         segments.push({
           a: rotate(cellVertex(shape, col, row, k), shape.orientationDeg, center),
           b: rotate(cellVertex(shape, col, row, k + 1), shape.orientationDeg, center),
@@ -54,38 +59,68 @@ export function spokeSegments(shape: GridShape, model: GridModel, rowStart = 0, 
   return segments;
 }
 
-/**
- * Spoke path data split into bands of `bandRows` rows, so that toggling one
- * spoke only rebuilds — and makes the browser re-parse — one band. A band is
- * reused from `previous` only when the shape, the dimensions and the band's
- * cell bytes are all unchanged.
- */
-export type SpokeBands = { shapeKey: string; bandRows: number; model: GridModel; paths: string[] };
+export function lineSegments(
+  kind: LineKind,
+  shape: GridShape,
+  model: GridModel,
+  rowStart?: number,
+  rowEnd?: number,
+): Segment[] {
+  return kind === "spoke"
+    ? spokeSegments(shape, model, rowStart, rowEnd)
+    : outlineSegments(shape, model, rowStart, rowEnd);
+}
 
-export function spokeBands(shape: GridShape, model: GridModel, bandRows: number, previous?: SpokeBands): SpokeBands {
+/**
+ * Path data for one line kind split into bands of `bandRows` rows, so that
+ * toggling one line only rebuilds — and makes the browser re-parse — one band.
+ * A band is reused from `previous` only when the kind, the shape, the
+ * dimensions and the band's cell bytes are all unchanged.
+ */
+export type PathBands = { kind: LineKind; shapeKey: string; bandRows: number; model: GridModel; paths: string[] };
+
+function bytesOf(kind: LineKind, model: GridModel): Uint8Array {
+  return kind === "spoke" ? model.spokes : model.edges;
+}
+
+export function pathBands(
+  kind: LineKind,
+  shape: GridShape,
+  model: GridModel,
+  bandRows: number,
+  previous?: PathBands,
+): PathBands {
   const shapeKey = `${shape.columns}/${shape.rows}/${shape.side}/${shape.orientationDeg}`;
   const reusable =
     previous !== undefined &&
+    previous.kind === kind &&
     previous.shapeKey === shapeKey &&
     previous.bandRows === bandRows &&
     previous.model.columns === model.columns &&
-    previous.model.rows === model.rows;
+    previous.model.rows === model.rows
+      ? previous
+      : undefined;
+  const bytes = bytesOf(kind, model);
   const paths: string[] = [];
   for (let rowStart = 0, band = 0; rowStart < shape.rows; rowStart += bandRows, band++) {
     const rowEnd = Math.min(shape.rows, rowStart + bandRows);
-    const cached = previous?.paths[band];
-    if (reusable && cached !== undefined && sameBytes(previous.model, model, rowStart * model.columns, rowEnd * model.columns)) {
+    const cached = reusable?.paths[band];
+    if (
+      reusable !== undefined &&
+      cached !== undefined &&
+      sameBytes(bytesOf(kind, reusable.model), bytes, rowStart * model.columns, rowEnd * model.columns)
+    ) {
       paths.push(cached);
     } else {
-      paths.push(toPathData(spokeSegments(shape, model, rowStart, rowEnd)));
+      paths.push(toPathData(lineSegments(kind, shape, model, rowStart, rowEnd)));
     }
   }
-  return { shapeKey, bandRows, model, paths };
+  return { kind, shapeKey, bandRows, model, paths };
 }
 
-function sameBytes(a: GridModel, b: GridModel, start: number, end: number): boolean {
-  if (a.spokes === b.spokes) return true;
-  for (let i = start; i < end; i++) if (a.spokes[i] !== b.spokes[i]) return false;
+function sameBytes(a: Uint8Array, b: Uint8Array, start: number, end: number): boolean {
+  if (a === b) return true;
+  for (let i = start; i < end; i++) if (a[i] !== b[i]) return false;
   return true;
 }
 
@@ -129,7 +164,7 @@ export function toSvgDocument(settings: GridSettings, model: GridModel): SvgDocu
     `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(width)}mm" height="${fmt(height)}mm" viewBox="${viewBox}">`,
     `<rect x="${fmt(bounds.minX)}" y="${fmt(bounds.minY)}" width="${fmt(width)}" height="${fmt(height)}" fill="${escapeAttribute(style.backgroundColor)}"/>`,
     `<path d="${toPathData(spokeSegments(settings, model))}" ${strokeAttributes(style.spokeWidth, style.spokeColor)}/>`,
-    `<path d="${toPathData(outlineSegments(settings))}" ${strokeAttributes(style.outlineWidth, style.outlineColor)}/>`,
+    `<path d="${toPathData(outlineSegments(settings, model))}" ${strokeAttributes(style.outlineWidth, style.outlineColor)}/>`,
     `</svg>`,
   ];
   return { svg: lines.join("\n"), bounds };

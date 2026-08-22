@@ -479,7 +479,6 @@ input[type="checkbox"] {
 }
 
 .grid-hover {
-  stroke: var(--accent);
   pointer-events: none;
 }
 

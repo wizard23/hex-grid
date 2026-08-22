@@ -1,24 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createModel, toggleSpoke } from "./model";
+import { createModel, toggleEdge, toggleSpoke } from "./model";
 import { DEFAULT_SETTINGS } from "./settings";
 import { parseDocument, parseSettings, serializeDocument } from "./file";
 
 test("a document survives a save/load round trip", () => {
   const settings = { ...DEFAULT_SETTINGS, columns: 3, rows: 2, orientationDeg: 15, spokeColor: "#ff00ff" };
-  const model = toggleSpoke(createModel(3, 2), 2, 1, 5);
+  const model = toggleEdge(toggleSpoke(createModel(3, 2), 2, 1, 5), 0, 0, 2);
   const loaded = parseDocument(serializeDocument({ settings, model }));
   assert.deepEqual(loaded.settings, settings);
   assert.deepEqual([...loaded.model.spokes], [...model.spokes]);
+  assert.deepEqual([...loaded.model.edges], [...model.edges]);
+});
+
+test("version 1 files (spokes only) load with every edge drawn", () => {
+  const loaded = parseDocument('{"format":"hex-grid","version":1,"settings":{"columns":2,"rows":1},"spokes":[1,2]}');
+  assert.deepEqual([...loaded.model.spokes], [1, 2]);
+  assert.deepEqual([...loaded.model.edges], [63, 63]);
 });
 
 test("parseDocument rejects foreign or corrupt input with a readable message", () => {
   assert.throws(() => parseDocument("{"), /not valid JSON/);
   assert.throws(() => parseDocument('{"format":"todo"}'), /not a hex-grid file/);
-  assert.throws(() => parseDocument('{"format":"hex-grid","version":2}'), /unsupported version/);
+  assert.throws(() => parseDocument('{"format":"hex-grid","version":3}'), /unsupported version/);
   assert.throws(
     () => parseDocument('{"format":"hex-grid","version":1,"settings":{"columns":2,"rows":2},"spokes":[1,2,3]}'),
-    /expected 4 cell bytes/,
+    /expected 4 spoke bytes/,
+  );
+  assert.throws(
+    () => parseDocument('{"format":"hex-grid","version":2,"settings":{"columns":2,"rows":2},"spokes":[1,2,3,4]}'),
+    /expected 4 edge bytes/,
   );
 });
 

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  canonicalEdge,
   cellAt,
   cellCenter,
   cellVertex,
@@ -48,6 +49,22 @@ test("neighbour across edge k is the cell sharing vertices k and k+1", () => {
         near(a.y, na.y);
         near(b.x, nb.x);
         near(b.y, nb.y);
+      }
+    }
+  }
+});
+
+test("canonicalEdge names one owner per shared edge, from both sides", () => {
+  assert.deepEqual(canonicalEdge(shape, 0, 0, 0), { col: 0, row: 0, k: 0 });
+  assert.deepEqual(canonicalEdge(shape, 1, 0, 3), { col: 0, row: 0, k: 0 });
+  // boundary edges stay with the cell
+  assert.deepEqual(canonicalEdge(shape, 0, 0, 3), { col: 0, row: 0, k: 3 });
+  for (let col = 0; col < shape.columns; col++) {
+    for (let row = 0; row < shape.rows; row++) {
+      for (let k = 0; k < 6; k++) {
+        const n = neighbour(shape, col, row, k);
+        if (n === null) continue;
+        assert.deepEqual(canonicalEdge(shape, col, row, k), canonicalEdge(shape, n.col, n.row, k + 3));
       }
     }
   }

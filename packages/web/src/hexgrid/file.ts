@@ -1,14 +1,23 @@
 import { modelFromBytes, type GridModel } from "./model";
 import { clampSetting, DEFAULT_SETTINGS, isColor, LIMITS, type GridSettings, type NumericSetting } from "./settings";
 
-/** the saved form of a grid: settings + one byte per cell (row-major) */
+/**
+ * The saved form of a grid: settings + one spoke byte and one edge byte per
+ * cell (row-major). Version 1 files carry spokes only; their edges load as
+ * all drawn.
+ */
 export type GridDocument = { settings: GridSettings; model: GridModel };
 
 const FORMAT = "hex-grid";
-const VERSION = 1;
+const VERSION = 2;
+const READABLE_VERSIONS = new Set([1, 2]);
 
 export function serializeDocument({ settings, model }: GridDocument): string {
-  return JSON.stringify({ format: FORMAT, version: VERSION, settings, spokes: [...model.spokes] }, null, 1);
+  return JSON.stringify(
+    { format: FORMAT, version: VERSION, settings, spokes: [...model.spokes], edges: [...model.edges] },
+    null,
+    1,
+  );
 }
 
 export function parseDocument(text: string): GridDocument {
@@ -19,14 +28,21 @@ export function parseDocument(text: string): GridDocument {
     throw new Error("not valid JSON");
   }
   if (!isRecord(raw) || raw.format !== FORMAT) throw new Error("not a hex-grid file");
-  if (raw.version !== VERSION) throw new Error(`unsupported version ${String(raw.version)}`);
-  const settings = parseSettings(raw.settings);
-  const spokes = raw.spokes;
-  const cells = settings.columns * settings.rows;
-  if (!Array.isArray(spokes) || spokes.length !== cells || !spokes.every(isByte)) {
-    throw new Error(`expected ${cells} cell bytes`);
+  if (typeof raw.version !== "number" || !READABLE_VERSIONS.has(raw.version)) {
+    throw new Error(`unsupported version ${String(raw.version)}`);
   }
-  return { settings, model: modelFromBytes(settings.columns, settings.rows, spokes) };
+  const settings = parseSettings(raw.settings);
+  const cells = settings.columns * settings.rows;
+  const spokes = parseBytes(raw.spokes, cells, "spoke");
+  const edges = raw.version === 1 ? undefined : parseBytes(raw.edges, cells, "edge");
+  return { settings, model: modelFromBytes(settings.columns, settings.rows, spokes, edges) };
+}
+
+function parseBytes(value: unknown, cells: number, what: string): number[] {
+  if (!Array.isArray(value) || value.length !== cells || !value.every(isByte)) {
+    throw new Error(`expected ${cells} ${what} bytes`);
+  }
+  return value;
 }
 
 /** settings from untrusted input; unknown/invalid fields fall back to the defaults */
