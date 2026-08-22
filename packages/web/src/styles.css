@@ -1,0 +1,386 @@
+/*
+ * Theme tokens — the ONLY place colors may be written. Every rule below the
+ * marker must use var(--…); styles.test.ts fails on color literals past it.
+ * :root is the default theme (dark); [data-theme] blocks override colors only.
+ */
+:root {
+  color-scheme: dark;
+  --bg: hsl(225 20% 10%);
+  --bg-image: linear-gradient(180deg, hsl(225 22% 12%), hsl(228 20% 8%));
+  --surface: hsl(225 16% 15%);
+  --surface-alt: hsl(225 15% 20%);
+  --text: hsl(220 15% 92%);
+  --muted: hsl(220 10% 64%);
+  --border: hsl(220 30% 85% / 0.14);
+  --accent: hsl(210 90% 62%);
+  --accent-contrast: hsl(225 20% 8%);
+  --danger: hsl(5 75% 64%);
+  --shadow: 0 10px 30px hsl(225 50% 4% / 0.4);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-pill: 999px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: hsl(240 5% 96%);
+  --bg-image: none;
+  --surface: hsl(0 0% 100%);
+  --surface-alt: hsl(240 5% 98%);
+  --text: hsl(240 6% 10%);
+  --muted: hsl(240 4% 52%);
+  --border: hsl(240 6% 88%);
+  --accent: hsl(240 6% 10%);
+  --accent-contrast: hsl(0 0% 100%);
+  --danger: hsl(0 74% 42%);
+  --shadow: 0 10px 30px hsl(240 6% 10% / 0.07);
+}
+
+:root[data-theme="ocean"] {
+  color-scheme: dark;
+  --bg: hsl(210 50% 9%);
+  --bg-image: radial-gradient(circle at 20% 0%, hsl(190 70% 40% / 0.18), transparent 45%),
+    linear-gradient(180deg, hsl(212 48% 12%), hsl(214 52% 7%));
+  --surface: hsl(210 40% 14%);
+  --surface-alt: hsl(209 38% 19%);
+  --text: hsl(195 40% 92%);
+  --muted: hsl(200 25% 62%);
+  --border: hsl(190 60% 80% / 0.14);
+  --accent: hsl(185 75% 52%);
+  --accent-contrast: hsl(212 50% 8%);
+  --danger: hsl(8 80% 64%);
+  --shadow: 0 10px 30px hsl(212 60% 4% / 0.45);
+}
+
+:root[data-theme="forest"] {
+  color-scheme: dark;
+  --bg: hsl(150 28% 8%);
+  --bg-image: radial-gradient(circle at 80% 0%, hsl(120 45% 40% / 0.14), transparent 45%),
+    linear-gradient(180deg, hsl(150 26% 11%), hsl(152 30% 6%));
+  --surface: hsl(150 22% 13%);
+  --surface-alt: hsl(149 20% 18%);
+  --text: hsl(110 25% 90%);
+  --muted: hsl(130 15% 60%);
+  --border: hsl(120 40% 80% / 0.13);
+  --accent: hsl(140 60% 52%);
+  --accent-contrast: hsl(150 30% 7%);
+  --danger: hsl(5 75% 62%);
+  --shadow: 0 10px 30px hsl(150 40% 3% / 0.45);
+}
+
+:root[data-theme="volcano"] {
+  color-scheme: dark;
+  --bg: hsl(15 32% 8%);
+  --bg-image: radial-gradient(circle at 50% 110%, hsl(18 90% 45% / 0.2), transparent 55%),
+    linear-gradient(180deg, hsl(14 30% 11%), hsl(12 35% 6%));
+  --surface: hsl(14 26% 13%);
+  --surface-alt: hsl(13 24% 18%);
+  --text: hsl(30 35% 91%);
+  --muted: hsl(22 18% 62%);
+  --border: hsl(25 60% 80% / 0.14);
+  --accent: hsl(18 92% 58%);
+  --accent-contrast: hsl(15 35% 7%);
+  --danger: hsl(0 85% 60%);
+  --shadow: 0 10px 30px hsl(15 60% 3% / 0.5);
+}
+
+:root[data-theme="northern-lights"] {
+  color-scheme: dark;
+  --bg: hsl(260 35% 9%);
+  --bg-image: radial-gradient(ellipse at 30% 0%, hsl(280 80% 60% / 0.22), transparent 50%),
+    radial-gradient(ellipse at 75% 10%, hsl(150 70% 50% / 0.14), transparent 45%),
+    linear-gradient(180deg, hsl(258 36% 12%), hsl(262 40% 6%));
+  --surface: hsl(259 30% 14%);
+  --surface-alt: hsl(258 28% 19%);
+  --text: hsl(270 30% 93%);
+  --muted: hsl(265 18% 66%);
+  --border: hsl(275 60% 85% / 0.15);
+  --accent: hsl(278 80% 70%);
+  --accent-contrast: hsl(260 40% 8%);
+  --danger: hsl(345 80% 65%);
+  --shadow: 0 10px 30px hsl(262 60% 4% / 0.5);
+}
+
+/* ---- end of theme tokens — no color literals below this line ---- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  background: var(--bg-image), var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.menubar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.menubar .brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.menubar .menu-items {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.menubar .who {
+  font-size: 0.9rem;
+  color: var(--muted);
+  padding: 0 0.25rem;
+}
+
+.menubar button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+h1 {
+  margin: 0 0 1rem;
+  font-size: 1.4rem;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--text);
+  padding: 0.35rem 0.8rem;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+button[type="submit"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.6rem;
+  width: 100%;
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.theme-picker {
+  width: auto;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.error {
+  color: var(--danger);
+  margin: 0.5rem 0 0;
+}
+
+.ok {
+  color: var(--accent);
+  margin: 0.5rem 0 0;
+}
+
+.hint {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+/* settings screen */
+.settings h2 {
+  font-size: 1rem;
+  margin: 0 0 0.6rem;
+}
+
+.settings .section {
+  padding: 1rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.settings .section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.settings form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.settings label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.settings .danger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.settings button.delete-account {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* auth screen */
+.auth .tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.auth .tabs .active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.auth form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.auth label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* todo screen */
+.todos form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.todos form .grow {
+  flex: 2;
+}
+
+.todos form input:not(.grow) {
+  flex: 1;
+}
+
+.todos form input {
+  width: auto;
+  min-width: 0;
+}
+
+.filter {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.todos ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.todos li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.todos li .title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.todos li.done .title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.todos li input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: none;
+}
+
+.todos li.empty {
+  color: var(--muted);
+  justify-content: center;
+}
+
+.tag {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.tag.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.delete {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 0.1rem 0.3rem;
+}
+
+.delete:hover {
+  color: var(--danger);
+}

@@ -1,0 +1,39 @@
+{
+  "name": "@asimov/workspace",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "config": {
+    "dataDir": "data"
+  },
+  "scripts": {
+    "build": "tsc -b && npm run --workspace @asimov/web build",
+    "typecheck": "tsc -b",
+    "clean": "npm run --workspaces --if-present clean",
+    "dev:ts": "tsc -b -w tsconfig.dev.json",
+    "dev:app": "node scripts/dev.mjs",
+    "dev:server": "npm run --workspace @asimov/server dev",
+    "dev:web": "npm run --workspace @asimov/web dev",
+    "dev:cli": "npm run --workspace @asimov/cli dev",
+    "start:server": "npm run --workspace @asimov/server start",
+    "lint": "eslint . --cache",
+    "test": "npm run --workspaces --if-present test",
+    "smoke:copy": "bash scripts/copy-smoke.sh",
+    "test:e2e": "node scripts/e2e-browser.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/node": "^25.0.8",
+    "eslint": "^9.39.2",
+    "playwright": "^1.61.1",
+    "tsx": "^4.8.1",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.53.0"
+  }
+}

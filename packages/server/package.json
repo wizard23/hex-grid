@@ -1,0 +1,40 @@
+{
+  "name": "@asimov/server",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "exports": {
+    ".": {
+      "types": "./dist/main.d.ts",
+      "default": "./dist/main.js"
+    },
+    "./store": {
+      "types": "./dist/lib/store.d.ts",
+      "default": "./dist/lib/store.js"
+    },
+    "./workspace": {
+      "types": "./dist/lib/workspace.d.ts",
+      "default": "./dist/lib/workspace.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"import('node:fs').then(fs=>fs.rmSync('dist',{recursive:true,force:true}))\"",
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "start": "node dist/main.js",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@asimov/shared": "^0.0.0",
+    "@fastify/jwt": "^9.1.0",
+    "@fastify/static": "^9.0.0",
+    "@fastify/swagger": "^9.4.2",
+    "@fastify/swagger-ui": "^5.2.2",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "fastify": "^5.6.0"
+  },
+  "devDependencies": {
+    "undici": "^7.6.0"
+  }
+}

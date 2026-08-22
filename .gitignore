@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# build output
+packages/*/dist/
+packages/*/dist-types/
+*.tsbuildinfo*
+packages/*/.vite/
+
+# tool caches
+.eslintcache
+
+# server JSON-file persistence (config.dataDir in package.json; untracked by
+# design — `git add -f` a snapshot if you ever want one in history)
+/data/
+
+# local environment & noise
+.env
+*.log
+.DS_Store

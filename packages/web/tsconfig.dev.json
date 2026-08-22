@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+    "tsBuildInfoFile": "./.tsbuildinfo.dev"
+  },
+  "references": [{ "path": "../shared/tsconfig.build.json" }]
+}

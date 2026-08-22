@@ -1,0 +1,20 @@
+{
+  "name": "@asimov/cli",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "bin": {
+    "asimov": "./bin/asimov.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/main.ts",
+    "clean": "node -e \"import('node:fs').then(fs=>fs.rmSync('dist',{recursive:true,force:true}))\"",
+    "start": "node dist/main.js",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@asimov/server": "^0.0.0",
+    "@asimov/shared": "^0.0.0"
+  }
+}
