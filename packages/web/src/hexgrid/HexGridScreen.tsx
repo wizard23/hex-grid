@@ -7,8 +7,14 @@ import { clampSetting, DEFAULT_SETTINGS, LIMITS, type GridSettings, type Numeric
 import { cellCenter, cellVertex, toWorld } from "./geometry";
 import { documentBounds, fmt, outlineSegments, spokeBands, toPathData, toSvgDocument, type SpokeBands } from "./svg";
 
-/** screen px = world mm · scale + (tx, ty) */
+/**
+ * screen px = world mm · scale + (tx, ty). The view is applied through the
+ * svg's viewBox, not a transform on a group: a transform that changes every
+ * frame makes browsers cache the drawing as a bitmap and scale that (fuzzy
+ * until they re-rasterise), while a viewBox change is a plain crisp repaint.
+ */
 type View = { scale: number; tx: number; ty: number };
+type Size = { width: number; height: number };
 
 const STORAGE_KEY = "hex-grid";
 const HIT_TOLERANCE_PX = 8;
@@ -48,6 +54,7 @@ export function HexGridScreen() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fitted, setFitted] = useState(false);
+  const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
   const bandCache = useRef<SpokeBands | undefined>(undefined);
@@ -75,10 +82,21 @@ export function HexGridScreen() {
     return () => clearTimeout(timer);
   }, [doc]);
 
-  function fitView() {
+  // the viewBox needs the svg's pixel size; observing it also keeps the
+  // mapping exact when the panel is resized
+  useEffect(() => {
     const svg = svgRef.current;
     if (svg === null) return;
-    const { width, height } = svg.getBoundingClientRect();
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry !== undefined) setSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
+
+  function fitView() {
+    const { width, height } = size;
+    if (width === 0 || height === 0) return;
     const w = bounds.maxX - bounds.minX;
     const h = bounds.maxY - bounds.minY;
     const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, 0.92 * Math.min(width / w, height / h)));
@@ -90,10 +108,10 @@ export function HexGridScreen() {
   }
 
   useEffect(() => {
-    if (fitted) return;
+    if (fitted || size.width === 0) return;
     fitView();
     setFitted(true);
-  }, [fitted]);
+  }, [fitted, size]);
 
   // wheel listeners must be non-passive to keep the page from scrolling
   useEffect(() => {
@@ -202,6 +220,7 @@ export function HexGridScreen() {
   const viewportClass = `grid-viewport${dragging ? " dragging" : hover !== null ? " hovering" : ""}`;
   const paperWidth = bounds.maxX - bounds.minX;
   const paperHeight = bounds.maxY - bounds.minY;
+  const viewBox = `${-view.tx / view.scale} ${-view.ty / view.scale} ${Math.max(size.width, 1) / view.scale} ${Math.max(size.height, 1) / view.scale}`;
 
   return (
     <div class="hexgrid">
@@ -256,52 +275,55 @@ export function HexGridScreen() {
       <div class={viewportClass}>
         <svg
           ref={svgRef}
+          viewBox={viewBox}
+          preserveAspectRatio="none"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onPointerLeave={onPointerLeave}
         >
-          <g transform={`translate(${view.tx} ${view.ty}) scale(${view.scale})`}>
-            <rect
-              x={bounds.minX}
-              y={bounds.minY}
-              width={paperWidth}
-              height={paperHeight}
-              fill={settings.backgroundColor}
-            />
-            {spokePaths.map((d, band) => (
-              <path
-                key={band}
-                d={d}
-                fill="none"
-                stroke={settings.spokeColor}
-                stroke-width={spokeWidth}
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            ))}
+          <rect
+            x={bounds.minX}
+            y={bounds.minY}
+            width={paperWidth}
+            height={paperHeight}
+            fill={settings.backgroundColor}
+          />
+          {spokePaths.map((d, band) => (
             <path
-              d={outlinePath}
+              key={band}
+              d={d}
               fill="none"
-              stroke={settings.outlineColor}
-              stroke-width={outlineWidth}
+              stroke={settings.spokeColor}
+              stroke-width={spokeWidth}
               stroke-linecap="round"
               stroke-linejoin="round"
             />
-            {hoverLine !== null && (
-              <line
-                class="grid-hover"
-                x1={hoverLine.a.x}
-                y1={hoverLine.a.y}
-                x2={hoverLine.b.x}
-                y2={hoverLine.b.y}
-                stroke-width={Math.max(spokeWidth, 2 / view.scale)}
-                stroke-dasharray={`${3 / view.scale} ${3 / view.scale}`}
-                stroke-linecap="round"
-              />
-            )}
-          </g>
+          ))}
+          <path
+            d={outlinePath}
+            fill="none"
+            stroke={settings.outlineColor}
+            stroke-width={outlineWidth}
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          {hoverLine !== null && (
+            // a screen-space cursor hint: non-scaling-stroke keeps the 2 px
+            // dots evenly spaced at every zoom level
+            <line
+              class="grid-hover"
+              x1={hoverLine.a.x}
+              y1={hoverLine.a.y}
+              x2={hoverLine.b.x}
+              y2={hoverLine.b.y}
+              vector-effect="non-scaling-stroke"
+              stroke-width="2"
+              stroke-dasharray="0 6"
+              stroke-linecap="round"
+            />
+          )}
         </svg>
       </div>
     </div>

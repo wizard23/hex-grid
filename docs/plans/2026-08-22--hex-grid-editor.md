@@ -79,3 +79,34 @@ required.
 Headless check (playwright, built server): deep link, fit, wheel zoom, drag pan, hover
 overlay, click toggle on/off, triangle preset, mm-sized SVG download, localStorage restore
 after reload, menubar navigation + browser back — all passing, no console errors.
+
+## Follow-up 2026-08-22: preview zoom fuzz + hover dots
+
+Root causes and fixes (no geometry/export changes):
+
+- **Fuzzy after zoom, sharp later** — pan/zoom rewrote a `<g transform>` every wheel tick;
+  browsers treat a constantly changing transform as an animation, cache the group as a
+  bitmap and scale it (blurry), re-rasterising only once the transform has been still for a
+  while. Fix: the view is now applied through the `<svg viewBox>` (same affine map, same
+  hit-test math), which is a plain repaint every frame — always crisp.
+- **Hover line dotted only when zoomed out** — dash/gap were 3 screen px but the stroke
+  width was `max(spokeWidth, 2/scale)` with round caps, so once the width passed 3 px the
+  caps swallowed the gaps. Fix: the hover line is a screen-space hint:
+  `vector-effect="non-scaling-stroke"`, `stroke-width="2"`, `stroke-dasharray="0 6"` — the
+  `/scale` arithmetic is gone.
+
+Zoom cost per wheel tick (headless Chromium, software raster, wall time until two frames
+after the tick, ~50 ms of which is driver overhead; all spokes on):
+
+| grid | median | max |
+|---|---|---|
+| 10×10 | 67 ms | 75 ms |
+| 100×100 | 112 ms | 118 ms |
+| 300×300 | 633 ms | 912 ms |
+
+Decision: crisp repaint per frame is fine through ~100×100 (the realistic notebook range
+is far below that). At the 300×300 limit every tick now costs a full repaint, which reads
+as sluggish where it previously read as "smooth but fuzzy". Kept as is; if large grids
+matter, the next step is explicit gesture phases (CSS transform on the viewport during
+the gesture, committed into the viewBox on pointer-up / wheel idle) — not done, pending a
+check on real GPU hardware.
