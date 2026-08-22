@@ -45,6 +45,7 @@ this list — most of it is a scoped find-and-replace the gates will police:
 | `packages/server/src/config.ts` | env → typed `AppConfig` (`PORT`, `HOST`, `JWT_SECRET`, `DATA_DIR`) |
 | `packages/server/src/*.test.ts` | node:test suites; `createTestApp()` lives in `test-helpers.ts` |
 | `packages/web/src/app.tsx` | the preact UI; `api.ts` is the fetch wrapper |
+| `packages/web/src/route.ts`, `hexgrid/` | client-side routes; `/hex-grid` editor: pure `geometry`/`model`/`svg`/`hit`/`file` modules + `HexGridScreen.tsx` |
 | `packages/cli/src/` | CLI entry |
 | `docs/plans/` | plans (kaizen style); `docs/sessions/` session notes |
 | `docs/documentations/developer/` | developer docs — start with `data-models.md` |

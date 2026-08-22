@@ -10,6 +10,8 @@ import {
 } from "@asimov/shared";
 import * as api from "./api";
 import { applyTheme, currentTheme, THEMES, type Theme } from "./theme";
+import { HexGridScreen } from "./hexgrid/HexGridScreen";
+import { useRoute, type Route } from "./route";
 
 type View = "main" | "settings";
 type AuthMode = "login" | "signup";
@@ -19,6 +21,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("main");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [route, navigate] = useRoute();
 
   useEffect(() => {
     if (api.getToken() === null) {
@@ -45,20 +48,30 @@ export function App() {
 
   function startAuth(mode: AuthMode) {
     setAuthMode(mode);
-    setView("main");
+    showTodos("main");
+  }
+
+  // the todos views live under the "/" route; the hex grid is its own route
+  function showTodos(v: View) {
+    navigate("todos");
+    setView(v);
   }
 
   if (!ready) return null;
   return (
-    <main class="app">
+    <main class={route === "hex-grid" ? "app app-wide" : "app"}>
       <MenuBar
         user={user}
         view={view}
-        onNav={setView}
+        route={route}
+        onNav={showTodos}
+        onRoute={navigate}
         onLogout={logout}
         onStartAuth={startAuth}
       />
-      {view === "settings" ? (
+      {route === "hex-grid" ? (
+        <HexGridScreen />
+      ) : view === "settings" ? (
         <SettingsScreen user={user} onUpdated={setUser} onDeleted={logout} />
       ) : user === null ? (
         <AuthScreen mode={authMode} onAuthed={onAuthed} />
@@ -72,32 +85,44 @@ export function App() {
 function MenuBar({
   user,
   view,
+  route,
   onNav,
+  onRoute,
   onLogout,
   onStartAuth,
 }: {
   user: User | null;
   view: View;
+  route: Route;
   onNav: (v: View) => void;
+  onRoute: (r: Route) => void;
   onLogout: () => void;
   onStartAuth: (mode: AuthMode) => void;
 }) {
+  const todos = route === "todos";
   return (
     <nav class="menubar">
       <span class="brand">todos</span>
       <div class="menu-items">
+        <button
+          type="button"
+          class={route === "hex-grid" ? "active" : ""}
+          onClick={() => onRoute("hex-grid")}
+        >
+          Hex grid
+        </button>
         {user !== null ? (
           <>
             <button
               type="button"
-              class={view === "main" ? "active" : ""}
+              class={todos && view === "main" ? "active" : ""}
               onClick={() => onNav("main")}
             >
               Todos
             </button>
             <button
               type="button"
-              class={view === "settings" ? "active" : ""}
+              class={todos && view === "settings" ? "active" : ""}
               onClick={() => onNav("settings")}
             >
               <span aria-hidden="true">⚙</span> Settings
@@ -117,7 +142,7 @@ function MenuBar({
             </button>
             <button
               type="button"
-              class={view === "settings" ? "active" : ""}
+              class={todos && view === "settings" ? "active" : ""}
               onClick={() => onNav("settings")}
               aria-label="Settings"
             >

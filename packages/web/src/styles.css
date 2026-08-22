@@ -384,3 +384,111 @@ input[type="checkbox"] {
 .delete:hover {
   color: var(--danger);
 }
+
+/* hex grid editor (/hex-grid) */
+.app-wide {
+  max-width: none;
+}
+
+.hexgrid {
+  display: grid;
+  grid-template-columns: 20rem minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.hexgrid form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.hexgrid .fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.hexgrid label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.hexgrid input[type="color"] {
+  height: 2.3rem;
+  padding: 0.15rem 0.3rem;
+}
+
+.hexgrid .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.hexgrid .file-button {
+  display: inline-block;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 0.35rem 0.8rem;
+  font-weight: normal;
+  font-size: 1rem;
+}
+
+.hexgrid .file-button input {
+  display: none;
+}
+
+.hexgrid .hint,
+.hexgrid .grid-status {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.grid-status {
+  color: var(--muted);
+}
+
+.grid-viewport {
+  height: calc(100vh - 7rem);
+  min-height: 20rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+
+.grid-viewport.hovering {
+  cursor: pointer;
+}
+
+.grid-viewport.dragging {
+  cursor: grabbing;
+}
+
+.grid-viewport svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.grid-hover {
+  stroke: var(--accent);
+  pointer-events: none;
+}
+
+@media (max-width: 48rem) {
+  .hexgrid {
+    grid-template-columns: 1fr;
+  }
+
+  .grid-viewport {
+    height: 60vh;
+  }
+}
