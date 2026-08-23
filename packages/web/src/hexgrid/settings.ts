@@ -21,6 +21,9 @@ export type GridStyle = {
   /** the 6-fold triangle subdivision lines (centre → vertex) */
   spokeWidth: number;
   spokeColor: string;
+  /** the optional dots at cell centres and corners */
+  vertexDiameter: number;
+  vertexColor: string;
   backgroundColor: string;
 };
 
@@ -33,6 +36,7 @@ export const LIMITS = {
   orientationDeg: { min: -360, max: 360 },
   outlineWidth: { min: 0, max: 20 },
   spokeWidth: { min: 0, max: 20 },
+  vertexDiameter: { min: 0.05, max: 20 },
 } as const;
 
 export type NumericSetting = keyof typeof LIMITS;
@@ -47,6 +51,8 @@ export const DEFAULT_SETTINGS: GridSettings = {
   outlineColor: "#0000ff",
   spokeWidth: 0.4,
   spokeColor: "#d3d3d3",
+  vertexDiameter: 0.3,
+  vertexColor: "#ffffff",
   backgroundColor: "#000000",
 };
 

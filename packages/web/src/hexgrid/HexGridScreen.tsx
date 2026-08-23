@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { Point } from "./geometry";
 import { parseDocument, serializeDocument, type GridDocument } from "./file";
-import { hitLine, type LineHit } from "./hit";
-import { ALL_LINES, createModel, fillModel, hasLine, resizeModel, toggleLine, type LineKind } from "./model";
+import { hitElement, type ElementHit } from "./hit";
+import {
+  ALL_LINES,
+  ALL_VERTICES,
+  CENTRE,
+  createModel,
+  fillLines,
+  fillVertices,
+  hasElement,
+  resizeModel,
+  toggleElement,
+  type ElementKind,
+  type GridModel,
+} from "./model";
 import { clampSetting, DEFAULT_SETTINGS, LIMITS, type GridSettings, type NumericSetting } from "./settings";
 import { cellCenter, cellVertex, toWorld } from "./geometry";
 import { documentBounds, fmt, pathBands, toSvgDocument, type PathBands } from "./svg";
@@ -18,6 +30,11 @@ type Size = { width: number; height: number };
 
 const STORAGE_KEY = "hex-grid";
 const HIT_TOLERANCE_PX = 8;
+const VERTEX_HIT_PX = 6;
+/** vertex hit radius is capped so lines stay clickable when zoomed far out */
+const VERTEX_HIT_MAX_SIDE_FRACTION = 0.25;
+const HOVER_RING_MIN_PX = 12;
+const HOVER_RING_MIN_STROKE_PX = 2;
 const DRAG_THRESHOLD_PX = 3;
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 400;
@@ -50,17 +67,21 @@ function download(filename: string, type: string, content: string) {
 export function HexGridScreen() {
   const [doc, setDoc] = useState<GridDocument>(loadStoredDocument);
   const [view, setView] = useState<View>({ scale: 4, tx: 0, ty: 0 });
-  const [hover, setHover] = useState<LineHit | null>(null);
+  const [hover, setHover] = useState<ElementHit | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fitted, setFitted] = useState(false);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
-  const bandCache = useRef<Record<LineKind, PathBands | undefined>>({ spoke: undefined, edge: undefined });
+  const bandCache = useRef<Record<ElementKind, PathBands | undefined>>({
+    spoke: undefined,
+    edge: undefined,
+    vertex: undefined,
+  });
 
   const { settings, model } = doc;
-  const { columns, rows, side, orientationDeg, outlineWidth, spokeWidth } = settings;
+  const { columns, rows, side, orientationDeg, outlineWidth, spokeWidth, vertexDiameter } = settings;
   const shapeDeps = [columns, rows, side, orientationDeg];
 
   // path strings are rebuilt only when the geometry or the lines change — never on pan/zoom
@@ -72,7 +93,14 @@ export function HexGridScreen() {
     bandCache.current.spoke = pathBands("spoke", settings, model, BAND_ROWS, bandCache.current.spoke);
     return bandCache.current.spoke.paths;
   }, [...shapeDeps, model]);
-  const bounds = useMemo(() => documentBounds(settings), [...shapeDeps, outlineWidth, spokeWidth]);
+  const vertexPaths = useMemo(() => {
+    bandCache.current.vertex = pathBands("vertex", settings, model, BAND_ROWS, bandCache.current.vertex);
+    return bandCache.current.vertex.paths;
+  }, [...shapeDeps, vertexDiameter, model]);
+  const bounds = useMemo(
+    () => documentBounds(settings),
+    [...shapeDeps, outlineWidth, spokeWidth, vertexDiameter],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -142,15 +170,27 @@ export function HexGridScreen() {
   }
 
   function setLines(spokes: number, edges: number) {
-    setDoc((d) => ({ ...d, model: fillModel(d.model, spokes, edges) }));
+    setDoc((d) => ({ ...d, model: fillLines(d.model, spokes, edges) }));
+  }
+
+  function setVertices(bits: number) {
+    setDoc((d) => ({ ...d, model: fillVertices(d.model, bits) }));
+  }
+
+  function clearAll() {
+    setDoc((d) => ({ ...d, model: fillVertices(fillLines(d.model, 0, 0), 0) }));
   }
 
   function toWorldPoint(p: Point): Point {
     return { x: (p.x - view.tx) / view.scale, y: (p.y - view.ty) / view.scale };
   }
 
-  function hitAt(p: Point): LineHit | null {
-    return hitLine(settings, toWorldPoint(p), HIT_TOLERANCE_PX / view.scale);
+  function hitAt(p: Point): ElementHit | null {
+    const vertexRadius = Math.min(
+      VERTEX_HIT_MAX_SIDE_FRACTION * side,
+      Math.max(vertexDiameter / 2, VERTEX_HIT_PX / view.scale),
+    );
+    return hitElement(settings, toWorldPoint(p), HIT_TOLERANCE_PX / view.scale, vertexRadius);
   }
 
   function onPointerDown(event: PointerEvent) {
@@ -189,7 +229,7 @@ export function HexGridScreen() {
     if (d.moved) return;
     const hit = hitAt(localPointer(svg, event));
     if (hit === null) return;
-    setDoc((current) => ({ ...current, model: toggleLine(current.model, hit.kind, hit.col, hit.row, hit.k) }));
+    setDoc((current) => ({ ...current, model: toggleElement(current.model, hit.kind, hit.col, hit.row, hit.k) }));
   }
 
   function onPointerLeave() {
@@ -219,19 +259,10 @@ export function HexGridScreen() {
       .catch((err: unknown) => setError(`Could not load file: ${err instanceof Error ? err.message : String(err)}`));
   }
 
-  const hoverLine = hover === null ? null : hoverSegment(settings, hover);
-  // the hovered line as it would be drawn, just dotted — in the background
-  // colour when it is on (the solid line visibly turns dotted), in the line's
+  // the hovered element as it would be drawn, just dotted — in the background
+  // colour when it is on (the solid shape visibly turns dotted), in its own
   // colour when it is off
-  const hoverWidth = hover?.kind === "edge" ? outlineWidth : spokeWidth;
-  const hoverColor =
-    hover === null
-      ? ""
-      : hasLine(model, hover.kind, hover.col, hover.row, hover.k)
-        ? settings.backgroundColor
-        : hover.kind === "edge"
-          ? settings.outlineColor
-          : settings.spokeColor;
+  const hoverCue = hover === null ? null : hoverCueFor(settings, model, hover, view.scale);
   const viewportClass = `grid-viewport${dragging ? " dragging" : hover !== null ? " hovering" : ""}`;
   const paperWidth = bounds.maxX - bounds.minX;
   const paperHeight = bounds.maxY - bounds.minY;
@@ -251,6 +282,8 @@ export function HexGridScreen() {
             <ColorField label="Outline colour" name="outlineColor" settings={settings} onChange={updateSettings} />
             <NumberField label="Triangle line width (mm)" name="spokeWidth" settings={settings} onChange={updateSettings} />
             <ColorField label="Triangle line colour" name="spokeColor" settings={settings} onChange={updateSettings} />
+            <NumberField label="Vertex diameter (mm)" name="vertexDiameter" settings={settings} onChange={updateSettings} />
+            <ColorField label="Vertex colour" name="vertexColor" settings={settings} onChange={updateSettings} />
             <ColorField label="Background" name="backgroundColor" settings={settings} onChange={updateSettings} />
           </div>
           <div class="actions">
@@ -260,7 +293,13 @@ export function HexGridScreen() {
             <button type="button" onClick={() => setLines(ALL_LINES, ALL_LINES)}>
               Triangle grid
             </button>
-            <button type="button" onClick={() => setLines(0, 0)}>
+            <button type="button" onClick={() => setVertices(ALL_VERTICES)}>
+              All vertices
+            </button>
+            <button type="button" onClick={() => setVertices(0)}>
+              No vertices
+            </button>
+            <button type="button" onClick={clearAll}>
               Clear
             </button>
             <button type="button" onClick={fitView}>
@@ -281,8 +320,8 @@ export function HexGridScreen() {
           </div>
           {error !== null && <p class="error">{error}</p>}
           <p class="hint">
-            Wheel zooms, left-drag pans, click a hex edge or a centre-to-corner line to toggle it. Sizes are
-            millimetres; the SVG prints true to size.
+            Wheel zooms, left-drag pans, click a hex edge, a centre-to-corner line or a vertex to toggle it.
+            Sizes are millimetres; the SVG prints true to size.
           </p>
           <p class="grid-status">
             {columns * rows} cells · {fmt(paperWidth)} × {fmt(paperHeight)} mm · zoom {Math.round(view.scale * 100) / 100}{" "}
@@ -330,18 +369,34 @@ export function HexGridScreen() {
               stroke-linejoin="round"
             />
           ))}
-          {hoverLine !== null && (
+          {vertexPaths.map((d, band) => (
+            <path key={band} d={d} fill={settings.vertexColor} />
+          ))}
+          {hoverCue?.kind === "line" && (
             // round caps on zero-length dashes give dots one width across, spaced
             // in multiples of the width, so the pattern looks the same at every zoom
             <line
               class="grid-hover"
-              x1={hoverLine.a.x}
-              y1={hoverLine.a.y}
-              x2={hoverLine.b.x}
-              y2={hoverLine.b.y}
-              stroke={hoverColor}
-              stroke-width={hoverWidth}
-              stroke-dasharray={`0 ${2.5 * hoverWidth}`}
+              x1={hoverCue.a.x}
+              y1={hoverCue.a.y}
+              x2={hoverCue.b.x}
+              y2={hoverCue.b.y}
+              stroke={hoverCue.color}
+              stroke-width={hoverCue.width}
+              stroke-dasharray={`0 ${2.5 * hoverCue.width}`}
+              stroke-linecap="round"
+            />
+          )}
+          {hoverCue?.kind === "ring" && (
+            <circle
+              class="grid-hover"
+              cx={hoverCue.center.x}
+              cy={hoverCue.center.y}
+              r={hoverCue.radius}
+              fill="none"
+              stroke={hoverCue.color}
+              stroke-width={hoverCue.width}
+              stroke-dasharray={`0 ${2.5 * hoverCue.width}`}
               stroke-linecap="round"
             />
           )}
@@ -356,10 +411,42 @@ function localPointer(svg: SVGSVGElement, event: { clientX: number; clientY: num
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
-function hoverSegment(settings: GridSettings, hit: LineHit): { a: Point; b: Point } {
-  const start = hit.kind === "edge" ? cellVertex(settings, hit.col, hit.row, hit.k) : cellCenter(settings, hit.col, hit.row);
+type HoverCue =
+  | { kind: "line"; a: Point; b: Point; width: number; color: string }
+  | { kind: "ring"; center: Point; radius: number; width: number; color: string };
+
+function hoverCueFor(settings: GridSettings, model: GridModel, hit: ElementHit, scale: number): HoverCue {
+  const on = hasElement(model, hit.kind, hit.col, hit.row, hit.k);
+  const centre = cellCenter(settings, hit.col, hit.row);
+  if (hit.kind === "vertex") {
+    const point = hit.k === CENTRE ? centre : cellVertex(settings, hit.col, hit.row, hit.k);
+    // a dotted ring; the dots themselves can be far smaller than a cursor, so
+    // the ring never shrinks below a readable size on screen. Background-colour
+    // dots only make sense while the ring still lies on the filled dot; once
+    // the minimum size lifts it off the dot, the dot inside shows the state.
+    const minDiameter = HOVER_RING_MIN_PX / scale;
+    const onDot = on && settings.vertexDiameter >= minDiameter;
+    const width = Math.max(settings.vertexDiameter / 3, HOVER_RING_MIN_STROKE_PX / scale);
+    const diameter = Math.max(settings.vertexDiameter, minDiameter);
+    return {
+      kind: "ring",
+      center: toWorld(settings, point),
+      // a ring cut into the dot stays inside its edge
+      radius: (onDot ? diameter - width : diameter) / 2,
+      width,
+      color: onDot ? settings.backgroundColor : settings.vertexColor,
+    };
+  }
+  const start = hit.kind === "edge" ? cellVertex(settings, hit.col, hit.row, hit.k) : centre;
   const end = cellVertex(settings, hit.col, hit.row, hit.kind === "edge" ? hit.k + 1 : hit.k);
-  return { a: toWorld(settings, start), b: toWorld(settings, end) };
+  const color = hit.kind === "edge" ? settings.outlineColor : settings.spokeColor;
+  return {
+    kind: "line",
+    a: toWorld(settings, start),
+    b: toWorld(settings, end),
+    width: hit.kind === "edge" ? settings.outlineWidth : settings.spokeWidth,
+    color: on ? settings.backgroundColor : color,
+  };
 }
 
 const STEPS: Record<NumericSetting, number> = {
@@ -369,6 +456,7 @@ const STEPS: Record<NumericSetting, number> = {
   orientationDeg: 1,
   outlineWidth: 0.05,
   spokeWidth: 0.05,
+  vertexDiameter: 0.05,
 };
 
 function NumberField({
@@ -417,7 +505,7 @@ function ColorField({
   onChange,
 }: {
   label: string;
-  name: "outlineColor" | "spokeColor" | "backgroundColor";
+  name: "outlineColor" | "spokeColor" | "vertexColor" | "backgroundColor";
   settings: GridSettings;
   onChange: (patch: Partial<GridSettings>) => void;
 }) {

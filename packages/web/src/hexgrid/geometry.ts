@@ -80,6 +80,24 @@ export function canonicalEdge(grid: GridSize, col: number, row: number, k: numbe
   return n === null ? { col, row, k: kk } : { col: n.col, row: n.row, k: kk - 3 };
 }
 
+export type Vertex = Cell & { k: number };
+
+/**
+ * A corner is shared by up to three cells: corner k of a cell is corner k+4
+ * of the neighbour across edge k and corner k+2 of the neighbour across edge
+ * k−1, so the three cells see it as {0,2,4} or {1,3,5}. Its single owner is
+ * the existing cell that sees it with the smallest index.
+ */
+export function canonicalVertex(grid: GridSize, col: number, row: number, k: number): Vertex {
+  const kk = ((k % 6) + 6) % 6;
+  let owner: Vertex = { col, row, k: kk };
+  const across = neighbour(grid, col, row, kk);
+  if (across !== null && (kk + 4) % 6 < owner.k) owner = { col: across.col, row: across.row, k: (kk + 4) % 6 };
+  const before = neighbour(grid, col, row, kk + 5);
+  if (before !== null && (kk + 2) % 6 < owner.k) owner = { col: before.col, row: before.row, k: (kk + 2) % 6 };
+  return owner;
+}
+
 /** the cell containing a local-frame point, or null when outside the grid */
 export function cellAt(shape: GridShape, p: Point): Cell | null {
   const q = ((2 / 3) * p.x) / shape.side;

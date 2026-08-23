@@ -2,19 +2,26 @@ import { modelFromBytes, type GridModel } from "./model";
 import { clampSetting, DEFAULT_SETTINGS, isColor, LIMITS, type GridSettings, type NumericSetting } from "./settings";
 
 /**
- * The saved form of a grid: settings + one spoke byte and one edge byte per
- * cell (row-major). Version 1 files carry spokes only; their edges load as
- * all drawn.
+ * The saved form of a grid: settings + one spoke, one edge and one vertex byte
+ * per cell (row-major). Version 1 files carry spokes only (edges load as all
+ * drawn), version 2 files carry no vertices (they load as hidden).
  */
 export type GridDocument = { settings: GridSettings; model: GridModel };
 
 const FORMAT = "hex-grid";
-const VERSION = 2;
-const READABLE_VERSIONS = new Set([1, 2]);
+const VERSION = 3;
+const READABLE_VERSIONS = new Set([1, 2, 3]);
 
 export function serializeDocument({ settings, model }: GridDocument): string {
   return JSON.stringify(
-    { format: FORMAT, version: VERSION, settings, spokes: [...model.spokes], edges: [...model.edges] },
+    {
+      format: FORMAT,
+      version: VERSION,
+      settings,
+      spokes: [...model.spokes],
+      edges: [...model.edges],
+      vertices: [...model.vertices],
+    },
     null,
     1,
   );
@@ -34,8 +41,9 @@ export function parseDocument(text: string): GridDocument {
   const settings = parseSettings(raw.settings);
   const cells = settings.columns * settings.rows;
   const spokes = parseBytes(raw.spokes, cells, "spoke");
-  const edges = raw.version === 1 ? undefined : parseBytes(raw.edges, cells, "edge");
-  return { settings, model: modelFromBytes(settings.columns, settings.rows, spokes, edges) };
+  const edges = raw.version >= 2 ? parseBytes(raw.edges, cells, "edge") : undefined;
+  const vertices = raw.version >= 3 ? parseBytes(raw.vertices, cells, "vertex") : undefined;
+  return { settings, model: modelFromBytes(settings.columns, settings.rows, spokes, edges, vertices) };
 }
 
 function parseBytes(value: unknown, cells: number, what: string): number[] {
@@ -53,7 +61,7 @@ export function parseSettings(raw: unknown): GridSettings {
     const value = source[key];
     settings[key] = clampSetting(key, typeof value === "number" ? value : NaN);
   }
-  for (const key of ["outlineColor", "spokeColor", "backgroundColor"] as const) {
+  for (const key of ["outlineColor", "spokeColor", "vertexColor", "backgroundColor"] as const) {
     const value = source[key];
     if (isColor(value)) settings[key] = value;
   }

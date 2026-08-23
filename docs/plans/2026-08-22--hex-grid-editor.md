@@ -126,3 +126,28 @@ check on real GPU hardware.
 - The outline path is now banded like the spoke path (`pathBands(kind, …)`), since it is
   rebuilt on clicks too. JSON format version 2 adds `edges`; version 1 still loads.
 - Presets: "Hex grid" = edges on / spokes off, "Triangle grid" = all on, "Clear" = all off.
+
+## Follow-up 2026-08-23: toggleable vertices (dots)
+
+Spec agreed beforehand (all points accepted):
+
+- Each cell has 7 vertices: the centre and 6 corners. A corner is shared by up to three
+  cells, which see it as {0,2,4} or {1,3,5}; its owner is the existing cell seeing it with
+  the smallest index (`canonicalVertex`). One `vertices` byte per cell: bits 0–5 corners
+  (stored on the owner), bit 6 centre. Default hidden. Settings `vertexDiameter`
+  (0.3 mm) and `vertexColor` (white).
+- Dots are filled circles drawn above the lines, batched like the lines (one banded
+  `<path>` of two-arc subpaths; no per-dot DOM, safe for PDF converters). Export gets a
+  fourth path; document padding accounts for the dot radius.
+- Hit-testing is vertex-first: a vertex wins within `max(dot radius, 6 px)`, capped at 25 %
+  of the side length so lines stay clickable zoomed out; lines as before otherwise.
+- Hover cue: a dotted ring, vertex colour when hidden, background colour when shown; the
+  ring never shrinks below 10 px on screen (the dots themselves can be ~1 px).
+- Presets: Hex / Triangle leave vertices alone; "All vertices" / "No vertices"; "Clear"
+  clears lines and vertices. JSON version 3 adds `vertices`; v1/v2 still load.
+- Known, accepted: like edges, shrinking then growing the grid can drop a corner whose
+  owner cell was removed (never shows a dot spuriously, since the default is hidden).
+
+Headless timings after this change (same method as above; all lines and all vertices on):
+100×100 zoom tick 106 ms median, click toggle 155 ms; 300×300 zoom tick 519 ms median,
+click toggle 731 ms. Same ballpark as before; the dots add roughly a third more path data.

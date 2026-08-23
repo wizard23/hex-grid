@@ -1,11 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cellVertex, type Point } from "./geometry";
-import { createModel, toggleEdge, toggleSpoke, ALL_LINES } from "./model";
+import { cellCenter, cellVertex, type Point } from "./geometry";
+import { ALL_LINES, ALL_VERTICES, CENTRE, createModel, toggleEdge, toggleSpoke, toggleVertex } from "./model";
 import { DEFAULT_SETTINGS, type GridShape } from "./settings";
-import { documentBounds, fmt, outlineSegments, pathBands, spokeSegments, toPathData, toSvgDocument, type Segment } from "./svg";
+import {
+  documentBounds,
+  fmt,
+  outlineSegments,
+  pathBands,
+  spokeSegments,
+  toDotPathData,
+  toPathData,
+  toSvgDocument,
+  vertexPoints,
+  type Segment,
+} from "./svg";
 
 const shape: GridShape = { columns: 5, rows: 4, side: 10, orientationDeg: 0 };
+const settings = { ...DEFAULT_SETTINGS, ...shape };
 
 function key(p: Point): string {
   return `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
@@ -54,6 +66,33 @@ test("spokeSegments follows the model bits", () => {
   assert.equal(spokeSegments(shape, full).length, 6 * shape.columns * shape.rows);
 });
 
+test("vertexPoints emits every distinct corner and centre exactly once", () => {
+  const all = vertexPoints(shape, createModel(shape.columns, shape.rows, 0, ALL_LINES, ALL_VERTICES));
+  const keys = all.map(key);
+  assert.equal(new Set(keys).size, keys.length, "no point is drawn twice");
+  const expected = new Set<string>();
+  for (let col = 0; col < shape.columns; col++) {
+    for (let row = 0; row < shape.rows; row++) {
+      expected.add(key(cellCenter(shape, col, row)));
+      for (let k = 0; k < 6; k++) expected.add(key(cellVertex(shape, col, row, k)));
+    }
+  }
+  assert.deepEqual(new Set(keys), expected);
+
+  const none = createModel(shape.columns, shape.rows);
+  assert.equal(vertexPoints(shape, none).length, 0);
+  const one = toggleVertex(none, 2, 1, CENTRE);
+  assert.deepEqual(vertexPoints(shape, one).map(key), [key(cellCenter(shape, 2, 1))]);
+  // a shared corner toggled from a non-owner cell is emitted by its owner
+  const corner = toggleVertex(none, 2, 1, 2);
+  assert.deepEqual(vertexPoints(shape, corner).map(key), [key(cellVertex(shape, 2, 1, 2))]);
+});
+
+test("toDotPathData draws one filled circle per point", () => {
+  assert.equal(toDotPathData([{ x: 1, y: 2 }], 0.5), "M1.25 2A0.25 0.25 0 1 0 0.75 2A0.25 0.25 0 1 0 1.25 2Z");
+  assert.equal(toDotPathData([], 1), "");
+});
+
 test("fmt keeps µm precision without trailing zeros or negative zero", () => {
   assert.equal(fmt(1.23456), "1.235");
   assert.equal(fmt(10), "10");
@@ -63,7 +102,7 @@ test("fmt keeps µm precision without trailing zeros or negative zero", () => {
 
 test("toSvgDocument is sized in millimetres with the viewBox matching", () => {
   const settings = { ...DEFAULT_SETTINGS, columns: 2, rows: 2, side: 10, outlineWidth: 1, spokeWidth: 0.5 };
-  const { svg, bounds } = toSvgDocument(settings, createModel(2, 2, 1));
+  const { svg, bounds } = toSvgDocument(settings, createModel(2, 2, 1, ALL_LINES, ALL_VERTICES));
   const expected = documentBounds(settings);
   assert.deepEqual(bounds, expected);
   const width = fmt(expected.maxX - expected.minX);
@@ -73,8 +112,11 @@ test("toSvgDocument is sized in millimetres with the viewBox matching", () => {
   assert.match(svg, /fill="#000000"/);
   assert.match(svg, /stroke="#0000ff" stroke-width="1"/);
   assert.match(svg, /stroke="#d3d3d3" stroke-width="0.5"/);
+  assert.match(svg, /<path d="M[^"]*A0\.15 0\.15[^"]*" fill="#ffffff"\/>/, "dots are a filled path in the vertex colour");
   // padding = half the thickest stroke
   assert.equal(expected.minX, -10 - 0.5);
+  const bigDots = documentBounds({ ...settings, vertexDiameter: 4 });
+  assert.equal(bigDots.minX, -10 - 2, "large dots widen the padding");
 });
 
 test("attribute values are escaped", () => {
@@ -87,24 +129,32 @@ function sortedSegments(path: string): string[] {
 }
 
 test("pathBands covers every line and reuses untouched bands", () => {
-  const full = createModel(shape.columns, shape.rows, ALL_LINES);
-  const first = pathBands("spoke", shape, full, 3);
+  const full = createModel(shape.columns, shape.rows, ALL_LINES, ALL_LINES, ALL_VERTICES);
+  const first = pathBands("spoke", settings, full, 3);
   assert.equal(first.paths.length, 2);
   assert.deepEqual(sortedSegments(first.paths.join("")), sortedSegments(toPathData(spokeSegments(shape, full))));
 
   const edited = toggleSpoke(full, 0, 3, 1);
-  const second = pathBands("spoke", shape, edited, 3, first);
+  const second = pathBands("spoke", settings, edited, 3, first);
   assert.equal(second.paths[0], first.paths[0], "band with unchanged bytes is reused");
   assert.notEqual(second.paths[1], first.paths[1]);
   assert.deepEqual(sortedSegments(second.paths.join("")), sortedSegments(toPathData(spokeSegments(shape, edited))));
 
-  const rotated = pathBands("spoke", { ...shape, orientationDeg: 10 }, edited, 3, second);
+  const rotated = pathBands("spoke", { ...settings, orientationDeg: 10 }, edited, 3, second);
   assert.notEqual(rotated.paths[0], second.paths[0], "a shape change invalidates every band");
 
-  const outline = pathBands("edge", shape, edited, 3);
+  const outline = pathBands("edge", settings, edited, 3);
   assert.deepEqual(sortedSegments(outline.paths.join("")), sortedSegments(toPathData(outlineSegments(shape, edited))));
-  const edgeEdited = pathBands("edge", shape, toggleEdge(edited, 0, 0, 0), 3, outline);
+  const edgeEdited = pathBands("edge", settings, toggleEdge(edited, 0, 0, 0), 3, outline);
   assert.notEqual(edgeEdited.paths[0], outline.paths[0]);
   assert.equal(edgeEdited.paths[1], outline.paths[1], "a spoke-only change does not touch outline bands of other rows");
-  assert.notEqual(pathBands("edge", shape, edited, 3, second).paths[0], second.paths[0], "kinds never share bands");
+  assert.notEqual(pathBands("edge", settings, edited, 3, second).paths[0], second.paths[0], "kinds never share bands");
+
+  const dots = pathBands("vertex", settings, edited, 3);
+  assert.equal(dots.paths.join(""), toDotPathData(vertexPoints(shape, edited), settings.vertexDiameter).length > 0 ? dots.paths.join("") : "");
+  assert.equal(dots.paths.join("").split("Z").length - 1, vertexPoints(shape, edited).length, "one circle per dot");
+  const resized = pathBands("vertex", { ...settings, vertexDiameter: 1 }, edited, 3, dots);
+  assert.notEqual(resized.paths[0], dots.paths[0], "a diameter change invalidates vertex bands");
+  const sameDots = pathBands("vertex", settings, toggleSpoke(edited, 0, 0, 0), 3, dots);
+  assert.deepEqual(sameDots.paths, dots.paths, "line changes do not rebuild vertex bands");
 });

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   canonicalEdge,
+  canonicalVertex,
   cellAt,
   cellCenter,
   cellVertex,
@@ -68,6 +69,30 @@ test("canonicalEdge names one owner per shared edge, from both sides", () => {
       }
     }
   }
+});
+
+test("canonicalVertex names one owner per shared corner, seen from all three cells", () => {
+  for (let col = 0; col < shape.columns; col++) {
+    for (let row = 0; row < shape.rows; row++) {
+      for (let k = 0; k < 6; k++) {
+        const owner = canonicalVertex(shape, col, row, k);
+        const here = cellVertex(shape, col, row, k);
+        const there = cellVertex(shape, owner.col, owner.row, owner.k);
+        near(here.x, there.x);
+        near(here.y, there.y);
+        // the same point seen from the two neighbouring cells resolves to the same owner
+        const across = neighbour(shape, col, row, k);
+        if (across !== null) assert.deepEqual(canonicalVertex(shape, across.col, across.row, k + 4), owner);
+        const before = neighbour(shape, col, row, k + 5);
+        if (before !== null) assert.deepEqual(canonicalVertex(shape, before.col, before.row, k + 2), owner);
+      }
+    }
+  }
+  // an interior corner is owned by the cell seeing it as 0 or 1
+  assert.deepEqual(canonicalVertex(shape, 1, 1, 0), { col: 1, row: 1, k: 0 });
+  assert.deepEqual(canonicalVertex(shape, 1, 1, 2), { col: 0, row: 2, k: 0 });
+  // a boundary corner with no such cell stays with the best existing one
+  assert.deepEqual(canonicalVertex(shape, 0, 0, 3), { col: 0, row: 0, k: 3 });
 });
 
 test("neighbour is null outside the grid", () => {

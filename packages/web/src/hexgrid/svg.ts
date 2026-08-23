@@ -1,4 +1,5 @@
 import {
+  canonicalVertex,
   cellCenter,
   cellVertex,
   gridCenter,
@@ -8,7 +9,7 @@ import {
   type Bounds,
   type Point,
 } from "./geometry";
-import { hasEdge, hasSpoke, type GridModel, type LineKind } from "./model";
+import { bytesOf, CENTRE, hasEdge, hasSpoke, hasVertex, type ElementKind, type GridModel, type LineKind } from "./model";
 import type { GridSettings, GridShape, GridStyle } from "./settings";
 
 /**
@@ -72,50 +73,89 @@ export function lineSegments(
 }
 
 /**
- * Path data for one line kind split into bands of `bandRows` rows, so that
- * toggling one line only rebuilds — and makes the browser re-parse — one band.
- * A band is reused from `previous` only when the kind, the shape, the
- * dimensions and the band's cell bytes are all unchanged.
+ * The drawn dots (cell centres and corners), every corner exactly once: a cell
+ * emits corner k only when it owns it. Optionally only for rows in
+ * [rowStart, rowEnd).
  */
-export type PathBands = { kind: LineKind; shapeKey: string; bandRows: number; model: GridModel; paths: string[] };
-
-function bytesOf(kind: LineKind, model: GridModel): Uint8Array {
-  return kind === "spoke" ? model.spokes : model.edges;
+export function vertexPoints(shape: GridShape, model: GridModel, rowStart = 0, rowEnd = shape.rows): Point[] {
+  const points: Point[] = [];
+  const center = gridCenter(shape);
+  for (let col = 0; col < shape.columns; col++) {
+    for (let row = rowStart; row < rowEnd; row++) {
+      if (hasVertex(model, col, row, CENTRE)) {
+        points.push(rotate(cellCenter(shape, col, row), shape.orientationDeg, center));
+      }
+      for (let k = 0; k < 6; k++) {
+        const owner = canonicalVertex(shape, col, row, k);
+        if (owner.col !== col || owner.row !== row || owner.k !== k) continue;
+        if (!hasVertex(model, col, row, k)) continue;
+        points.push(rotate(cellVertex(shape, col, row, k), shape.orientationDeg, center));
+      }
+    }
+  }
+  return points;
 }
 
+/** filled circles as one path: two arcs per dot */
+export function toDotPathData(points: readonly Point[], diameter: number): string {
+  const r = diameter / 2;
+  const parts: string[] = [];
+  for (const { x, y } of points) {
+    const rr = fmt(r);
+    parts.push(`M${fmt(x + r)} ${fmt(y)}A${rr} ${rr} 0 1 0 ${fmt(x - r)} ${fmt(y)}A${rr} ${rr} 0 1 0 ${fmt(x + r)} ${fmt(y)}Z`);
+  }
+  return parts.join("");
+}
+
+function elementPathData(kind: ElementKind, settings: GridSettings, model: GridModel, rowStart: number, rowEnd: number): string {
+  return kind === "vertex"
+    ? toDotPathData(vertexPoints(settings, model, rowStart, rowEnd), settings.vertexDiameter)
+    : toPathData(lineSegments(kind, settings, model, rowStart, rowEnd));
+}
+
+/**
+ * Path data for one element kind split into bands of `bandRows` rows, so that
+ * toggling one element only rebuilds — and makes the browser re-parse — one
+ * band. A band is reused from `previous` only when the kind, the geometry
+ * (shape, and the dot diameter for vertices), the dimensions and the band's
+ * cell bytes are all unchanged.
+ */
+export type PathBands = { kind: ElementKind; geometryKey: string; bandRows: number; model: GridModel; paths: string[] };
+
 export function pathBands(
-  kind: LineKind,
-  shape: GridShape,
+  kind: ElementKind,
+  settings: GridSettings,
   model: GridModel,
   bandRows: number,
   previous?: PathBands,
 ): PathBands {
-  const shapeKey = `${shape.columns}/${shape.rows}/${shape.side}/${shape.orientationDeg}`;
+  const { columns, rows, side, orientationDeg, vertexDiameter } = settings;
+  const geometryKey = `${columns}/${rows}/${side}/${orientationDeg}/${kind === "vertex" ? vertexDiameter : ""}`;
   const reusable =
     previous !== undefined &&
     previous.kind === kind &&
-    previous.shapeKey === shapeKey &&
+    previous.geometryKey === geometryKey &&
     previous.bandRows === bandRows &&
     previous.model.columns === model.columns &&
     previous.model.rows === model.rows
       ? previous
       : undefined;
-  const bytes = bytesOf(kind, model);
+  const bytes = bytesOf(model, kind);
   const paths: string[] = [];
-  for (let rowStart = 0, band = 0; rowStart < shape.rows; rowStart += bandRows, band++) {
-    const rowEnd = Math.min(shape.rows, rowStart + bandRows);
+  for (let rowStart = 0, band = 0; rowStart < rows; rowStart += bandRows, band++) {
+    const rowEnd = Math.min(rows, rowStart + bandRows);
     const cached = reusable?.paths[band];
     if (
       reusable !== undefined &&
       cached !== undefined &&
-      sameBytes(bytesOf(kind, reusable.model), bytes, rowStart * model.columns, rowEnd * model.columns)
+      sameBytes(bytesOf(reusable.model, kind), bytes, rowStart * columns, rowEnd * columns)
     ) {
       paths.push(cached);
     } else {
-      paths.push(toPathData(lineSegments(kind, shape, model, rowStart, rowEnd)));
+      paths.push(elementPathData(kind, settings, model, rowStart, rowEnd));
     }
   }
-  return { kind, shapeKey, bandRows, model, paths };
+  return { kind, geometryKey, bandRows, model, paths };
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array, start: number, end: number): boolean {
@@ -137,9 +177,9 @@ export function toPathData(segments: readonly Segment[]): string {
   return parts.join("");
 }
 
-/** world bounds padded so the thickest stroke is not clipped */
+/** world bounds padded so the thickest stroke / largest dot is not clipped */
 export function documentBounds(settings: GridSettings): Bounds {
-  const pad = Math.max(settings.outlineWidth, settings.spokeWidth) / 2;
+  const pad = Math.max(settings.outlineWidth, settings.spokeWidth, settings.vertexDiameter) / 2;
   const b = worldBounds(settings);
   return { minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad };
 }
@@ -165,6 +205,7 @@ export function toSvgDocument(settings: GridSettings, model: GridModel): SvgDocu
     `<rect x="${fmt(bounds.minX)}" y="${fmt(bounds.minY)}" width="${fmt(width)}" height="${fmt(height)}" fill="${escapeAttribute(style.backgroundColor)}"/>`,
     `<path d="${toPathData(spokeSegments(settings, model))}" ${strokeAttributes(style.spokeWidth, style.spokeColor)}/>`,
     `<path d="${toPathData(outlineSegments(settings, model))}" ${strokeAttributes(style.outlineWidth, style.outlineColor)}/>`,
+    `<path d="${toDotPathData(vertexPoints(settings, model), style.vertexDiameter)}" fill="${escapeAttribute(style.vertexColor)}"/>`,
     `</svg>`,
   ];
   return { svg: lines.join("\n"), bounds };
