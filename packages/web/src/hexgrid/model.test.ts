@@ -17,7 +17,33 @@ import {
   toggleEdge,
   toggleSpoke,
   toggleVertex,
+  clampTriangles,
+  clearTriangles,
+  cycleTriangle,
+  setTriangleState,
+  triangleState,
+  TRIANGLES_PER_CELL,
 } from "./model";
+
+test("triangles start at state 0, cycle modulo the state count, reset and clamp", () => {
+  const m = createModel(2, 2);
+  assert.equal(m.triangles.length, 4 * TRIANGLES_PER_CELL);
+  assert.equal(triangleState(m, 1, 1, 4), 0);
+  let t = cycleTriangle(m, 1, 1, 4, 3);
+  assert.equal(triangleState(t, 1, 1, 4), 1);
+  assert.equal(triangleState(m, 1, 1, 4), 0, "original untouched");
+  t = cycleTriangle(t, 1, 1, 4, 3);
+  assert.equal(triangleState(t, 1, 1, 4), 2);
+  assert.equal(triangleState(cycleTriangle(t, 1, 1, 4, 3), 1, 1, 4), 0, "wraps to 0");
+  assert.equal(triangleState(t, 1, 1, 3), 0, "other triangles untouched");
+  assert.equal(triangleState(setTriangleState(t, 1, 1, 4, 0), 1, 1, 4), 0);
+  const t5 = setTriangleState(t, 0, 0, 0, 5);
+  const clamped = clampTriangles(t5, 3);
+  assert.equal(triangleState(clamped, 0, 0, 0), 2, "states above the maximum are capped");
+  assert.equal(triangleState(clamped, 1, 1, 4), 2);
+  assert.equal(clampTriangles(t, 3), t, "nothing to clamp → same model");
+  assert.deepEqual([...clearTriangles(t5).triangles], [...m.triangles]);
+});
 
 test("toggleSpoke flips one bit and leaves the original untouched", () => {
   const m = createModel(3, 2);
@@ -75,8 +101,10 @@ test("resizeModel keeps the cells that still exist", () => {
   m = toggleSpoke(m, 0, 1, 5);
   m = toggleEdge(m, 0, 0, 1);
   m = toggleVertex(m, 1, 1, CENTRE);
+  m = setTriangleState(m, 1, 1, 2, 7);
   const smaller = resizeModel(m, 2, 2);
   assert.equal(hasVertex(smaller, 1, 1, CENTRE), true);
+  assert.equal(triangleState(smaller, 1, 1, 2), 7);
   assert.equal(smaller.spokes.length, 4);
   assert.equal(hasSpoke(smaller, 0, 1, 5), true);
   assert.equal(hasEdge(smaller, 0, 0, 1), false);
@@ -85,6 +113,8 @@ test("resizeModel keeps the cells that still exist", () => {
   assert.equal(hasSpoke(bigger, 0, 1, 5), true);
   assert.equal(hasEdge(bigger, 0, 0, 1), false);
   assert.equal(hasVertex(bigger, 1, 1, CENTRE), true);
+  assert.equal(triangleState(bigger, 1, 1, 2), 7);
+  assert.equal(triangleState(bigger, 3, 4, 0), 0);
   assert.equal(hasVertex(bigger, 3, 4, CENTRE), false, "new cells have no dots");
   assert.equal(spokesOf(bigger, 3, 4), 0);
   assert.equal(hasEdge(bigger, 3, 4, 0), true, "new cells get all edges");
@@ -92,11 +122,13 @@ test("resizeModel keeps the cells that still exist", () => {
 });
 
 test("modelFromBytes masks bits and defaults edges to drawn, vertices to hidden", () => {
-  const m = modelFromBytes(2, 1, [255, 5], undefined, undefined);
+  const m = modelFromBytes(2, 1, [255, 5], undefined, undefined, undefined);
   assert.deepEqual([...m.spokes], [63, 5]);
   assert.deepEqual([...m.edges], [63, 63]);
   assert.deepEqual([...m.vertices], [0, 0]);
-  const full = modelFromBytes(2, 1, [0, 0], [1, 2], [255, 3]);
+  assert.deepEqual([...m.triangles], new Array<number>(12).fill(0));
+  const full = modelFromBytes(2, 1, [0, 0], [1, 2], [255, 3], [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2]);
   assert.deepEqual([...full.edges], [1, 2]);
   assert.deepEqual([...full.vertices], [127, 3]);
+  assert.deepEqual([...full.triangles], [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2]);
 });

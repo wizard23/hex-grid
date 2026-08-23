@@ -24,8 +24,14 @@ export type GridStyle = {
   /** the optional dots at cell centres and corners */
   vertexDiameter: number;
   vertexColor: string;
+  /** number of fill states per triangle (state 0 = unfilled) */
+  stateCount: number;
+  /** fill colour of states 1 … MAX_STATES−1 (only the first stateCount−1 are in use) */
+  stateColors: string[];
   backgroundColor: string;
 };
+
+export const MAX_STATES = 10;
 
 export type GridSettings = GridShape & GridStyle;
 
@@ -37,6 +43,7 @@ export const LIMITS = {
   outlineWidth: { min: 0, max: 20 },
   spokeWidth: { min: 0, max: 20 },
   vertexDiameter: { min: 0.05, max: 20 },
+  stateCount: { min: 2, max: MAX_STATES },
 } as const;
 
 export type NumericSetting = keyof typeof LIMITS;
@@ -53,10 +60,13 @@ export const DEFAULT_SETTINGS: GridSettings = {
   spokeColor: "#d3d3d3",
   vertexDiameter: 0.3,
   vertexColor: "#ffffff",
+  stateCount: 3,
+  // nine shades of grey, light to dark
+  stateColors: ["#e6e6e6", "#cccccc", "#b3b3b3", "#999999", "#808080", "#666666", "#4d4d4d", "#333333", "#1a1a1a"],
   backgroundColor: "#000000",
 };
 
-const INTEGER_SETTINGS: ReadonlySet<NumericSetting> = new Set(["columns", "rows"]);
+const INTEGER_SETTINGS: ReadonlySet<NumericSetting> = new Set(["columns", "rows", "stateCount"]);
 
 /** clamp a numeric setting into its allowed range (integers where required) */
 export function clampSetting(key: NumericSetting, value: number): number {

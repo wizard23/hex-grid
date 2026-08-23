@@ -12,17 +12,19 @@ import { CENTRE, type ElementKind } from "./model";
 import type { GridShape } from "./settings";
 
 /**
- * A spoke (centre → corner k), a hex edge (corner k → k+1, canonical owner)
- * or a vertex (corner k, canonical owner, or the centre k = CENTRE).
+ * A spoke (centre → corner k), a hex edge (corner k → k+1, canonical owner),
+ * a vertex (corner k, canonical owner, or the centre k = CENTRE) or a
+ * triangle (between the centre, corner k and corner k+1).
  */
 export type ElementHit = { kind: ElementKind; col: number; row: number; k: number };
 
 /**
  * The element under a world-frame point: a vertex when one lies within
- * `vertexRadius`, otherwise the closest line within `lineTolerance` (both in
- * world units, i.e. mm). Pure arithmetic — no per-element DOM is needed for
- * hover and click. Shared edges and corners are reported by their canonical
- * owner so hovering from any side names the same element.
+ * `vertexRadius`, else the closest line within `lineTolerance` (both in world
+ * units, i.e. mm), else the triangle the point is in. Null only outside the
+ * grid. Pure arithmetic — no per-element DOM is needed for hover and click.
+ * Shared edges and corners are reported by their canonical owner so hovering
+ * from any side names the same element.
  */
 export function hitElement(shape: GridShape, world: Point, lineTolerance: number, vertexRadius: number): ElementHit | null {
   const p = toLocal(shape, world);
@@ -50,12 +52,12 @@ export function hitElement(shape: GridShape, world: Point, lineTolerance: number
   const turns = ((angle / 60) % 6) + 6;
   const spokeK = Math.round(turns) % 6;
   const spokeDistance = distanceToSegment(p, c, cellVertex(shape, col, row, spokeK));
-  const edgeK = Math.floor(turns) % 6;
-  const edgeDistance = distanceToSegment(p, cellVertex(shape, col, row, edgeK), cellVertex(shape, col, row, edgeK + 1));
+  const sector = Math.floor(turns) % 6; // edge and triangle between corner `sector` and `sector + 1`
+  const edgeDistance = distanceToSegment(p, cellVertex(shape, col, row, sector), cellVertex(shape, col, row, sector + 1));
 
-  if (spokeDistance <= edgeDistance) {
-    return spokeDistance <= lineTolerance ? { kind: "spoke", col, row, k: spokeK } : null;
+  if (spokeDistance <= edgeDistance && spokeDistance <= lineTolerance) return { kind: "spoke", col, row, k: spokeK };
+  if (edgeDistance < spokeDistance && edgeDistance <= lineTolerance) {
+    return { kind: "edge", ...canonicalEdge(shape, col, row, sector) };
   }
-  if (edgeDistance > lineTolerance) return null;
-  return { kind: "edge", ...canonicalEdge(shape, col, row, edgeK) };
+  return { kind: "triangle", col, row, k: sector };
 }

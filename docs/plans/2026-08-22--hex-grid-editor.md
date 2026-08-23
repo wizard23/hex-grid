@@ -151,3 +151,24 @@ Spec agreed beforehand (all points accepted):
 Headless timings after this change (same method as above; all lines and all vertices on):
 100×100 zoom tick 106 ms median, click toggle 155 ms; 300×300 zoom tick 519 ms median,
 click toggle 731 ms. Same ballpark as before; the dots add roughly a third more path data.
+
+## Follow-up 2026-08-23: triangle fill states
+
+Spec agreed beforehand:
+
+- Each of the six triangles of a cell (centre, corner t, corner t+1) holds a fill state
+  0 … n−1 (`triangles`: six bytes per cell, default 0). n = `stateCount` (2 … 10, default
+  3); `stateColors` holds a colour per state ≥ 1 (fixed length 9, nine greys light → dark;
+  only the first n−1 are in use). Left click steps the state modulo n, **shift-click
+  resets it to 0** (right click was rejected: it fights the context menu). Reducing n
+  **caps** every state to n−1 (also on load).
+- Fills are drawn below everything (background → fills → triangle lines → edges → dots),
+  one banded `<path>` per state, with a thin same-colour stroke (0.1 mm) against the
+  anti-aliasing seams between neighbouring fills. Export: one `<path>` per used state.
+- Hit-testing: vertex → line → triangle (the fallback inside a cell, so fills are always
+  reachable); the line tolerance is capped at 20 % of the side length on screen so small
+  triangles stay clickable when zoomed out.
+- Hover cue: the triangle's dotted outline, inset off the lines, in the colour the next
+  click will produce (background colour = "clears it").
+- Presets: "No fills"; "Clear" clears fills too. JSON version 4 adds `triangles`; v1–v3
+  still load.

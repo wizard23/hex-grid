@@ -53,16 +53,30 @@ test("hitElement prefers a vertex within the vertex radius, by canonical owner",
   }
 });
 
-test("hitElement is null away from elements, picks the nearer line kind, null outside the grid", () => {
+test("hitElement falls back to the triangle, picks the nearer line kind, null outside the grid", () => {
   const c = cellCenter(shape, 1, 1);
   const a = (30 * Math.PI) / 180;
   // midway between spokes 0 and 1 at 4 mm: 2 mm from either spoke, 4.66 mm from the edge
   const nearSpokes = toWorld(shape, { x: c.x + 4 * Math.cos(a), y: c.y + 4 * Math.sin(a) });
-  assert.equal(hitElement(shape, nearSpokes, 1, 1), null);
+  assert.deepEqual(hitElement(shape, nearSpokes, 1, 1), { kind: "triangle", col: 1, row: 1, k: 0 });
   assert.equal(hitElement(shape, nearSpokes, 2.1, 1)?.kind, "spoke");
   // at 6 mm: 3 mm from the spokes but only 2.66 mm from edge 0
   const nearEdge = toWorld(shape, { x: c.x + 6 * Math.cos(a), y: c.y + 6 * Math.sin(a) });
-  assert.equal(hitElement(shape, nearEdge, 2.5, 1), null);
+  assert.deepEqual(hitElement(shape, nearEdge, 2.5, 1), { kind: "triangle", col: 1, row: 1, k: 0 });
   assert.equal(hitElement(shape, nearEdge, 2.7, 1)?.kind, "edge");
   assert.equal(hitElement(shape, { x: -500, y: -500 }, 5, 5), null);
+});
+
+test("hitElement names the triangle by its sector in every cell", () => {
+  for (let col = 0; col < shape.columns; col++) {
+    for (let row = 0; row < shape.rows; row++) {
+      const c = cellCenter(shape, col, row);
+      for (let t = 0; t < 6; t++) {
+        const a = cellVertex(shape, col, row, t);
+        const b = cellVertex(shape, col, row, t + 1);
+        const centroid = toWorld(shape, { x: (c.x + a.x + b.x) / 3, y: (c.y + a.y + b.y) / 3 });
+        assert.deepEqual(hitElement(shape, centroid, 1, 1), { kind: "triangle", col, row, k: t });
+      }
+    }
+  }
 });

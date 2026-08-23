@@ -9,7 +9,18 @@ import {
   type Bounds,
   type Point,
 } from "./geometry";
-import { bytesOf, CENTRE, hasEdge, hasSpoke, hasVertex, type ElementKind, type GridModel, type LineKind } from "./model";
+import {
+  bytesOf,
+  bytesPerCell,
+  CENTRE,
+  hasEdge,
+  hasSpoke,
+  hasVertex,
+  triangleState,
+  TRIANGLES_PER_CELL,
+  type GridModel,
+  type LineKind,
+} from "./model";
 import type { GridSettings, GridShape, GridStyle } from "./settings";
 
 /**
@@ -96,6 +107,47 @@ export function vertexPoints(shape: GridShape, model: GridModel, rowStart = 0, r
   return points;
 }
 
+export type Triangle = [Point, Point, Point];
+
+/** the triangles (centre, corner t, corner t+1) currently in fill `state`, rows [rowStart, rowEnd) */
+export function triangleShapes(shape: GridShape, model: GridModel, state: number, rowStart = 0, rowEnd = shape.rows): Triangle[] {
+  const triangles: Triangle[] = [];
+  const center = gridCenter(shape);
+  for (let col = 0; col < shape.columns; col++) {
+    for (let row = rowStart; row < rowEnd; row++) {
+      const c = rotate(cellCenter(shape, col, row), shape.orientationDeg, center);
+      for (let t = 0; t < TRIANGLES_PER_CELL; t++) {
+        if (triangleState(model, col, row, t) !== state) continue;
+        triangles.push([
+          c,
+          rotate(cellVertex(shape, col, row, t), shape.orientationDeg, center),
+          rotate(cellVertex(shape, col, row, t + 1), shape.orientationDeg, center),
+        ]);
+      }
+    }
+  }
+  return triangles;
+}
+
+export function toPolygonPathData(polygons: readonly (readonly Point[])[]): string {
+  const parts: string[] = [];
+  for (const polygon of polygons) {
+    parts.push("M" + polygon.map((p) => `${fmt(p.x)} ${fmt(p.y)}`).join("L") + "Z");
+  }
+  return parts.join("");
+}
+
+/**
+ * Fills get a thin stroke in their own colour: anti-aliasing otherwise leaves
+ * hairline seams between neighbouring fills on screen.
+ */
+export const FILL_SEAM_STROKE = 0.1;
+
+export function fillAttributes(color: string): string {
+  const c = escapeAttribute(color);
+  return `fill="${c}" stroke="${c}" stroke-width="${fmt(FILL_SEAM_STROKE)}" stroke-linejoin="round"`;
+}
+
 /** filled circles as one path: two arcs per dot */
 export function toDotPathData(points: readonly Point[], diameter: number): string {
   const r = diameter / 2;
@@ -107,40 +159,52 @@ export function toDotPathData(points: readonly Point[], diameter: number): strin
   return parts.join("");
 }
 
-function elementPathData(kind: ElementKind, settings: GridSettings, model: GridModel, rowStart: number, rowEnd: number): string {
-  return kind === "vertex"
-    ? toDotPathData(vertexPoints(settings, model, rowStart, rowEnd), settings.vertexDiameter)
-    : toPathData(lineSegments(kind, settings, model, rowStart, rowEnd));
+/** what one banded path draws: lines, dots, or the triangles of one fill state */
+export type PathKind = { kind: LineKind | "vertex" } | { kind: "triangle"; state: number };
+
+function elementPathData(what: PathKind, settings: GridSettings, model: GridModel, rowStart: number, rowEnd: number): string {
+  switch (what.kind) {
+    case "vertex":
+      return toDotPathData(vertexPoints(settings, model, rowStart, rowEnd), settings.vertexDiameter);
+    case "triangle":
+      return toPolygonPathData(triangleShapes(settings, model, what.state, rowStart, rowEnd));
+    default:
+      return toPathData(lineSegments(what.kind, settings, model, rowStart, rowEnd));
+  }
 }
 
 /**
  * Path data for one element kind split into bands of `bandRows` rows, so that
  * toggling one element only rebuilds — and makes the browser re-parse — one
- * band. A band is reused from `previous` only when the kind, the geometry
- * (shape, and the dot diameter for vertices), the dimensions and the band's
- * cell bytes are all unchanged.
+ * band. A band is reused from `previous` only when the kind (and fill state),
+ * the geometry (shape, and the dot diameter for vertices), the dimensions and
+ * the band's cell bytes are all unchanged.
  */
-export type PathBands = { kind: ElementKind; geometryKey: string; bandRows: number; model: GridModel; paths: string[] };
+export type PathBands = { what: PathKind; geometryKey: string; bandRows: number; model: GridModel; paths: string[] };
+
+function pathKindKey(what: PathKind): string {
+  return what.kind === "triangle" ? `triangle:${what.state}` : what.kind;
+}
 
 export function pathBands(
-  kind: ElementKind,
+  what: PathKind,
   settings: GridSettings,
   model: GridModel,
   bandRows: number,
   previous?: PathBands,
 ): PathBands {
   const { columns, rows, side, orientationDeg, vertexDiameter } = settings;
-  const geometryKey = `${columns}/${rows}/${side}/${orientationDeg}/${kind === "vertex" ? vertexDiameter : ""}`;
+  const geometryKey = `${pathKindKey(what)}/${columns}/${rows}/${side}/${orientationDeg}/${what.kind === "vertex" ? vertexDiameter : ""}`;
   const reusable =
     previous !== undefined &&
-    previous.kind === kind &&
     previous.geometryKey === geometryKey &&
     previous.bandRows === bandRows &&
     previous.model.columns === model.columns &&
     previous.model.rows === model.rows
       ? previous
       : undefined;
-  const bytes = bytesOf(model, kind);
+  const bytes = bytesOf(model, what.kind);
+  const perRow = columns * bytesPerCell(what.kind);
   const paths: string[] = [];
   for (let rowStart = 0, band = 0; rowStart < rows; rowStart += bandRows, band++) {
     const rowEnd = Math.min(rows, rowStart + bandRows);
@@ -148,14 +212,14 @@ export function pathBands(
     if (
       reusable !== undefined &&
       cached !== undefined &&
-      sameBytes(bytesOf(reusable.model, kind), bytes, rowStart * columns, rowEnd * columns)
+      sameBytes(bytesOf(reusable.model, what.kind), bytes, rowStart * perRow, rowEnd * perRow)
     ) {
       paths.push(cached);
     } else {
-      paths.push(elementPathData(kind, settings, model, rowStart, rowEnd));
+      paths.push(elementPathData(what, settings, model, rowStart, rowEnd));
     }
   }
-  return { kind, geometryKey, bandRows, model, paths };
+  return { what, geometryKey, bandRows, model, paths };
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array, start: number, end: number): boolean {
@@ -192,6 +256,11 @@ export function escapeAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
+/** fill colour of a triangle state ≥ 1 */
+export function stateColor(style: GridStyle, state: number): string {
+  return style.stateColors[state - 1] ?? style.backgroundColor;
+}
+
 export type SvgDocument = { svg: string; bounds: Bounds };
 
 export function toSvgDocument(settings: GridSettings, model: GridModel): SvgDocument {
@@ -200,9 +269,15 @@ export function toSvgDocument(settings: GridSettings, model: GridModel): SvgDocu
   const height = bounds.maxY - bounds.minY;
   const viewBox = `${fmt(bounds.minX)} ${fmt(bounds.minY)} ${fmt(width)} ${fmt(height)}`;
   const style: GridStyle = settings;
+  const fills: string[] = [];
+  for (let state = 1; state < style.stateCount; state++) {
+    const d = toPolygonPathData(triangleShapes(settings, model, state));
+    if (d !== "") fills.push(`<path d="${d}" ${fillAttributes(stateColor(style, state))}/>`);
+  }
   const lines = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(width)}mm" height="${fmt(height)}mm" viewBox="${viewBox}">`,
     `<rect x="${fmt(bounds.minX)}" y="${fmt(bounds.minY)}" width="${fmt(width)}" height="${fmt(height)}" fill="${escapeAttribute(style.backgroundColor)}"/>`,
+    ...fills,
     `<path d="${toPathData(spokeSegments(settings, model))}" ${strokeAttributes(style.spokeWidth, style.spokeColor)}/>`,
     `<path d="${toPathData(outlineSegments(settings, model))}" ${strokeAttributes(style.outlineWidth, style.outlineColor)}/>`,
     `<path d="${toDotPathData(vertexPoints(settings, model), style.vertexDiameter)}" fill="${escapeAttribute(style.vertexColor)}"/>`,

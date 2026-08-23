@@ -1,16 +1,24 @@
-import { modelFromBytes, type GridModel } from "./model";
-import { clampSetting, DEFAULT_SETTINGS, isColor, LIMITS, type GridSettings, type NumericSetting } from "./settings";
+import { clampTriangles, modelFromBytes, TRIANGLES_PER_CELL, type GridModel } from "./model";
+import {
+  clampSetting,
+  DEFAULT_SETTINGS,
+  isColor,
+  LIMITS,
+  type GridSettings,
+  type NumericSetting,
+} from "./settings";
 
 /**
  * The saved form of a grid: settings + one spoke, one edge and one vertex byte
- * per cell (row-major). Version 1 files carry spokes only (edges load as all
- * drawn), version 2 files carry no vertices (they load as hidden).
+ * plus six triangle-state bytes per cell (row-major). Version 1 files carry
+ * spokes only (edges load as all drawn), version 2 files no vertices (hidden),
+ * version 3 files no triangle states (all 0).
  */
 export type GridDocument = { settings: GridSettings; model: GridModel };
 
 const FORMAT = "hex-grid";
-const VERSION = 3;
-const READABLE_VERSIONS = new Set([1, 2, 3]);
+const VERSION = 4;
+const READABLE_VERSIONS = new Set([1, 2, 3, 4]);
 
 export function serializeDocument({ settings, model }: GridDocument): string {
   return JSON.stringify(
@@ -21,6 +29,7 @@ export function serializeDocument({ settings, model }: GridDocument): string {
       spokes: [...model.spokes],
       edges: [...model.edges],
       vertices: [...model.vertices],
+      triangles: [...model.triangles],
     },
     null,
     1,
@@ -43,7 +52,9 @@ export function parseDocument(text: string): GridDocument {
   const spokes = parseBytes(raw.spokes, cells, "spoke");
   const edges = raw.version >= 2 ? parseBytes(raw.edges, cells, "edge") : undefined;
   const vertices = raw.version >= 3 ? parseBytes(raw.vertices, cells, "vertex") : undefined;
-  return { settings, model: modelFromBytes(settings.columns, settings.rows, spokes, edges, vertices) };
+  const triangles = raw.version >= 4 ? parseBytes(raw.triangles, cells * TRIANGLES_PER_CELL, "triangle") : undefined;
+  const model = modelFromBytes(settings.columns, settings.rows, spokes, edges, vertices, triangles);
+  return { settings, model: clampTriangles(model, settings.stateCount) };
 }
 
 function parseBytes(value: unknown, cells: number, what: string): number[] {
@@ -65,6 +76,11 @@ export function parseSettings(raw: unknown): GridSettings {
     const value = source[key];
     if (isColor(value)) settings[key] = value;
   }
+  const colors = Array.isArray(source.stateColors) ? (source.stateColors as unknown[]) : [];
+  settings.stateColors = DEFAULT_SETTINGS.stateColors.map((fallback, i) => {
+    const value = colors[i];
+    return isColor(value) ? value : fallback;
+  });
   return settings;
 }
 

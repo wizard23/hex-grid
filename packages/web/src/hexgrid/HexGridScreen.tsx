@@ -6,18 +6,31 @@ import {
   ALL_LINES,
   ALL_VERTICES,
   CENTRE,
+  clampTriangles,
+  clearTriangles,
   createModel,
+  cycleTriangle,
   fillLines,
   fillVertices,
   hasElement,
   resizeModel,
+  setTriangleState,
   toggleElement,
-  type ElementKind,
+  triangleState,
   type GridModel,
 } from "./model";
 import { clampSetting, DEFAULT_SETTINGS, LIMITS, type GridSettings, type NumericSetting } from "./settings";
 import { cellCenter, cellVertex, toWorld } from "./geometry";
-import { documentBounds, fmt, pathBands, toSvgDocument, type PathBands } from "./svg";
+import {
+  documentBounds,
+  FILL_SEAM_STROKE,
+  fmt,
+  pathBands,
+  stateColor,
+  toSvgDocument,
+  type PathBands,
+  type PathKind,
+} from "./svg";
 
 /**
  * screen px = world mm · scale + (tx, ty). The view is applied through the
@@ -30,9 +43,12 @@ type Size = { width: number; height: number };
 
 const STORAGE_KEY = "hex-grid";
 const HIT_TOLERANCE_PX = 8;
+/** line tolerance is capped so triangles stay clickable when zoomed far out */
+const LINE_HIT_MAX_SIDE_FRACTION = 0.2;
 const VERTEX_HIT_PX = 6;
 /** vertex hit radius is capped so lines stay clickable when zoomed far out */
 const VERTEX_HIT_MAX_SIDE_FRACTION = 0.25;
+const HOVER_LINE_MIN_PX = 1.5;
 const HOVER_RING_MIN_PX = 12;
 const HOVER_RING_MIN_STROKE_PX = 2;
 const DRAG_THRESHOLD_PX = 3;
@@ -74,29 +90,29 @@ export function HexGridScreen() {
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
-  const bandCache = useRef<Record<ElementKind, PathBands | undefined>>({
-    spoke: undefined,
-    edge: undefined,
-    vertex: undefined,
-  });
+  const bandCache = useRef(new Map<string, PathBands>());
 
   const { settings, model } = doc;
-  const { columns, rows, side, orientationDeg, outlineWidth, spokeWidth, vertexDiameter } = settings;
+  const { columns, rows, side, orientationDeg, outlineWidth, spokeWidth, vertexDiameter, stateCount } = settings;
   const shapeDeps = [columns, rows, side, orientationDeg];
 
-  // path strings are rebuilt only when the geometry or the lines change — never on pan/zoom
-  const outlinePaths = useMemo(() => {
-    bandCache.current.edge = pathBands("edge", settings, model, BAND_ROWS, bandCache.current.edge);
-    return bandCache.current.edge.paths;
-  }, [...shapeDeps, model]);
-  const spokePaths = useMemo(() => {
-    bandCache.current.spoke = pathBands("spoke", settings, model, BAND_ROWS, bandCache.current.spoke);
-    return bandCache.current.spoke.paths;
-  }, [...shapeDeps, model]);
-  const vertexPaths = useMemo(() => {
-    bandCache.current.vertex = pathBands("vertex", settings, model, BAND_ROWS, bandCache.current.vertex);
-    return bandCache.current.vertex.paths;
-  }, [...shapeDeps, vertexDiameter, model]);
+  // path strings are rebuilt only when the geometry or the elements change — never on pan/zoom
+  function bandedPaths(key: string, what: PathKind): string[] {
+    const bands = pathBands(what, settings, model, BAND_ROWS, bandCache.current.get(key));
+    bandCache.current.set(key, bands);
+    return bands.paths;
+  }
+  const outlinePaths = useMemo(() => bandedPaths("edge", { kind: "edge" }), [...shapeDeps, model]);
+  const spokePaths = useMemo(() => bandedPaths("spoke", { kind: "spoke" }), [...shapeDeps, model]);
+  const vertexPaths = useMemo(() => bandedPaths("vertex", { kind: "vertex" }), [...shapeDeps, vertexDiameter, model]);
+  const fillPaths = useMemo(
+    () =>
+      Array.from({ length: stateCount - 1 }, (_, i) => {
+        const state = i + 1;
+        return { state, paths: bandedPaths(`triangle:${state}`, { kind: "triangle", state }) };
+      }),
+    [...shapeDeps, stateCount, model],
+  );
   const bounds = useMemo(
     () => documentBounds(settings),
     [...shapeDeps, outlineWidth, spokeWidth, vertexDiameter],
@@ -165,7 +181,16 @@ export function HexGridScreen() {
   function updateSettings(patch: Partial<GridSettings>) {
     setDoc((d) => {
       const next = { ...d.settings, ...patch };
-      return { settings: next, model: resizeModel(d.model, next.columns, next.rows) };
+      const model = clampTriangles(resizeModel(d.model, next.columns, next.rows), next.stateCount);
+      return { settings: next, model };
+    });
+  }
+
+  function setStateColor(state: number, color: string) {
+    setDoc((d) => {
+      const stateColors = [...d.settings.stateColors];
+      stateColors[state - 1] = color;
+      return { ...d, settings: { ...d.settings, stateColors } };
     });
   }
 
@@ -177,8 +202,12 @@ export function HexGridScreen() {
     setDoc((d) => ({ ...d, model: fillVertices(d.model, bits) }));
   }
 
+  function clearFills() {
+    setDoc((d) => ({ ...d, model: clearTriangles(d.model) }));
+  }
+
   function clearAll() {
-    setDoc((d) => ({ ...d, model: fillVertices(fillLines(d.model, 0, 0), 0) }));
+    setDoc((d) => ({ ...d, model: clearTriangles(fillVertices(fillLines(d.model, 0, 0), 0)) }));
   }
 
   function toWorldPoint(p: Point): Point {
@@ -186,11 +215,12 @@ export function HexGridScreen() {
   }
 
   function hitAt(p: Point): ElementHit | null {
+    const lineTolerance = Math.min(LINE_HIT_MAX_SIDE_FRACTION * side, HIT_TOLERANCE_PX / view.scale);
     const vertexRadius = Math.min(
       VERTEX_HIT_MAX_SIDE_FRACTION * side,
       Math.max(vertexDiameter / 2, VERTEX_HIT_PX / view.scale),
     );
-    return hitElement(settings, toWorldPoint(p), HIT_TOLERANCE_PX / view.scale, vertexRadius);
+    return hitElement(settings, toWorldPoint(p), lineTolerance, vertexRadius);
   }
 
   function onPointerDown(event: PointerEvent) {
@@ -229,7 +259,7 @@ export function HexGridScreen() {
     if (d.moved) return;
     const hit = hitAt(localPointer(svg, event));
     if (hit === null) return;
-    setDoc((current) => ({ ...current, model: toggleElement(current.model, hit.kind, hit.col, hit.row, hit.k) }));
+    setDoc((current) => ({ ...current, model: applyClick(current, hit, event.shiftKey) }));
   }
 
   function onPointerLeave() {
@@ -284,6 +314,19 @@ export function HexGridScreen() {
             <ColorField label="Triangle line colour" name="spokeColor" settings={settings} onChange={updateSettings} />
             <NumberField label="Vertex diameter (mm)" name="vertexDiameter" settings={settings} onChange={updateSettings} />
             <ColorField label="Vertex colour" name="vertexColor" settings={settings} onChange={updateSettings} />
+            <NumberField label="Fill states" name="stateCount" settings={settings} onChange={updateSettings} />
+          </div>
+          <div class="fields">
+            {Array.from({ length: stateCount - 1 }, (_, i) => i + 1).map((state) => (
+              <label key={state}>
+                State {state} colour
+                <input
+                  type="color"
+                  value={stateColor(settings, state)}
+                  onInput={(event) => setStateColor(state, event.currentTarget.value)}
+                />
+              </label>
+            ))}
             <ColorField label="Background" name="backgroundColor" settings={settings} onChange={updateSettings} />
           </div>
           <div class="actions">
@@ -298,6 +341,9 @@ export function HexGridScreen() {
             </button>
             <button type="button" onClick={() => setVertices(0)}>
               No vertices
+            </button>
+            <button type="button" onClick={clearFills}>
+              No fills
             </button>
             <button type="button" onClick={clearAll}>
               Clear
@@ -320,8 +366,9 @@ export function HexGridScreen() {
           </div>
           {error !== null && <p class="error">{error}</p>}
           <p class="hint">
-            Wheel zooms, left-drag pans, click a hex edge, a centre-to-corner line or a vertex to toggle it.
-            Sizes are millimetres; the SVG prints true to size.
+            Wheel zooms, left-drag pans, click a hex edge, a centre-to-corner line or a vertex to toggle it;
+            click a triangle to step its fill state, shift-click to clear it. Sizes are millimetres; the SVG
+            prints true to size.
           </p>
           <p class="grid-status">
             {columns * rows} cells · {fmt(paperWidth)} × {fmt(paperHeight)} mm · zoom {Math.round(view.scale * 100) / 100}{" "}
@@ -347,6 +394,18 @@ export function HexGridScreen() {
             height={paperHeight}
             fill={settings.backgroundColor}
           />
+          {fillPaths.map(({ state, paths }) =>
+            paths.map((d, band) => (
+              <path
+                key={`${state}/${band}`}
+                d={d}
+                fill={stateColor(settings, state)}
+                stroke={stateColor(settings, state)}
+                stroke-width={FILL_SEAM_STROKE}
+                stroke-linejoin="round"
+              />
+            )),
+          )}
           {spokePaths.map((d, band) => (
             <path
               key={band}
@@ -387,6 +446,18 @@ export function HexGridScreen() {
               stroke-linecap="round"
             />
           )}
+          {hoverCue?.kind === "outline" && (
+            <polygon
+              class="grid-hover"
+              points={hoverCue.points.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke={hoverCue.color}
+              stroke-width={hoverCue.width}
+              stroke-dasharray={`0 ${2.5 * hoverCue.width}`}
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          )}
           {hoverCue?.kind === "ring" && (
             <circle
               class="grid-hover"
@@ -411,13 +482,42 @@ function localPointer(svg: SVGSVGElement, event: { clientX: number; clientY: num
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
+/** a left click steps a triangle's fill state (shift resets it) and toggles anything else */
+function applyClick(doc: GridDocument, hit: ElementHit, shift: boolean): GridModel {
+  const { model, settings } = doc;
+  if (hit.kind !== "triangle") return toggleElement(model, hit.kind, hit.col, hit.row, hit.k);
+  if (shift) return setTriangleState(model, hit.col, hit.row, hit.k, 0);
+  return cycleTriangle(model, hit.col, hit.row, hit.k, settings.stateCount);
+}
+
 type HoverCue =
   | { kind: "line"; a: Point; b: Point; width: number; color: string }
-  | { kind: "ring"; center: Point; radius: number; width: number; color: string };
+  | { kind: "ring"; center: Point; radius: number; width: number; color: string }
+  | { kind: "outline"; points: Point[]; width: number; color: string };
 
 function hoverCueFor(settings: GridSettings, model: GridModel, hit: ElementHit, scale: number): HoverCue {
-  const on = hasElement(model, hit.kind, hit.col, hit.row, hit.k);
   const centre = cellCenter(settings, hit.col, hit.row);
+  if (hit.kind === "triangle") {
+    // the triangle's outline, inset so it does not sit on the lines, in the
+    // colour the next click will give it (background = "clears it")
+    const next = (triangleState(model, hit.col, hit.row, hit.k) + 1) % settings.stateCount;
+    const width = Math.max(settings.spokeWidth, HOVER_LINE_MIN_PX / scale);
+    const inset = Math.max(settings.outlineWidth, settings.spokeWidth) / 2 + width;
+    const a = cellVertex(settings, hit.col, hit.row, hit.k);
+    const b = cellVertex(settings, hit.col, hit.row, hit.k + 1);
+    const corners = [centre, a, b];
+    const centroid = { x: (centre.x + a.x + b.x) / 3, y: (centre.y + a.y + b.y) / 3 };
+    // the triangles are equilateral with side `side`: scaling about the centroid
+    // by (1 − inset / inradius) moves every side inward by exactly `inset`
+    const factor = Math.max(0, 1 - inset / (settings.side / (2 * Math.sqrt(3))));
+    return {
+      kind: "outline",
+      points: corners.map((p) => toWorld(settings, { x: centroid.x + (p.x - centroid.x) * factor, y: centroid.y + (p.y - centroid.y) * factor })),
+      width,
+      color: next === 0 ? settings.backgroundColor : stateColor(settings, next),
+    };
+  }
+  const on = hasElement(model, hit.kind, hit.col, hit.row, hit.k);
   if (hit.kind === "vertex") {
     const point = hit.k === CENTRE ? centre : cellVertex(settings, hit.col, hit.row, hit.k);
     // a dotted ring; the dots themselves can be far smaller than a cursor, so
@@ -457,6 +557,7 @@ const STEPS: Record<NumericSetting, number> = {
   outlineWidth: 0.05,
   spokeWidth: 0.05,
   vertexDiameter: 0.05,
+  stateCount: 1,
 };
 
 function NumberField({
