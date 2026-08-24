@@ -30,7 +30,11 @@ export function cellVertex(shape: GridShape, col: number, row: number, k: number
   return { x: c.x + v.x, y: c.y + v.y };
 }
 
+/** a pseudo-grid without bounds, for lattice-wide computations (transforms, stamps) */
+export const UNBOUNDED: GridSize = { columns: Infinity, rows: Infinity };
+
 export function inGrid(grid: GridSize, col: number, row: number): boolean {
+  if (grid.columns === Infinity) return true;
   return col >= 0 && col < grid.columns && row >= 0 && row < grid.rows;
 }
 
@@ -50,12 +54,24 @@ function axialStep(k: number): Point {
   return step;
 }
 
+export type AxialCell = { q: number; r: number };
+
+/** odd-q offset → axial; works for negative columns too */
+export function cellToAxial(cell: Cell): AxialCell {
+  return { q: cell.col, r: cell.row - (cell.col - (cell.col & 1)) / 2 };
+}
+
+export function axialToCell(p: AxialCell): Cell {
+  return { col: p.q, row: p.r + (p.q - (p.q & 1)) / 2 };
+}
+
 function offsetToAxial(col: number, row: number): Point {
-  return { x: col, y: row - (col - (col & 1)) / 2 };
+  const a = cellToAxial({ col, row });
+  return { x: a.q, y: a.r };
 }
 
 function axialToOffset(q: number, r: number): Cell {
-  return { col: q, row: r + (q - (q & 1)) / 2 };
+  return axialToCell({ q, r });
 }
 
 /** the cell across edge k, or null when it lies outside the grid */

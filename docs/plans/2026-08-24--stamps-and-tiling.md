@@ -1,7 +1,6 @@
 # Stamps and symmetric tiling
 
-Date: 2026-08-24. Status: **approved for planning; implementation not started** (waiting for
-explicit go).
+Date: 2026-08-24. Status: **implemented** (same day; go given).
 
 ## Goal
 
@@ -110,3 +109,39 @@ JSON export, live whole-grid symmetry mode outside the stamp editor.
   pressure will show up (extract the canvas viewport into its own component first if
   needed — behaviour-preserving prep, kept as its own commit).
 - Centre-type snapping rules per group are part of `symmetry.ts` presets, tested.
+
+## Outcome (2026-08-24)
+
+All eight slices are implemented and verified: 125 unit tests across the web package
+(gates lint → typecheck → build → test all green) and 82 headless-browser checks covering
+select/save/rename/duplicate/delete/persist (IndexedDB across reload), place (ghost, R/F,
+merge, undo/redo), the stamp editor (locked non-members, membership, save/cancel), and
+tiling (p6 preview with orbit/copies/gaps/conflict counts, domain highlight, p1 gap
+detection, apply + undo, conflict warning for an asymmetric stamp under p6, symmetric
+editing painting a whole 6-spoke orbit in one click).
+
+The engine's exactness is test-pinned: coset counts modulo the lattice equal the point
+group orders for all 14 groups; Burnside cross-checks (p6 with the unit lattice → 1 cell
+orbit, doubled lattice → 2); pg contains no pure mirror; **p3m1/p31m are distinguished by
+the crystallographic property** (all 3-fold centres on mirrors ⇔ p3m1), which confirmed
+the axis convention (p3m1: mirrors at 30° to u; p31m: mirrors along u).
+
+Deviations from the plan, with reasons:
+
+- **Thumbnails are rendered live**, not cached in IndexedDB: they use the document's
+  colours, which change per document, so a cache would be invalid most of the time and
+  they are cheap to render.
+- **"Update from grid" was dropped**: stamps store no absolute grid location, so the
+  operation has no well-defined footprint; the stamp editor plus Place covers the
+  workflow.
+- **Diagnostics** are shown as counts (orbits / copies / gaps / conflicts) plus the live
+  preview and the optional fundamental-domain highlight — not as per-cell constraint
+  icons. Symmetric editing makes the constraint icons redundant: with a group attached,
+  consistency holds by construction.
+- The tiling anchor is fixed to the cell nearest the grid centre (with the centre marker
+  movable by double-click); a movable anchor can come later if needed.
+
+Note for test authors: the settings column is taller than a laptop viewport; headless
+checks must re-measure the svg's bounding box after any layout change (buttons appearing,
+panel opening) or use a tall viewport — stale coordinates silently miss the canvas (two
+debugging sessions went into exactly that).

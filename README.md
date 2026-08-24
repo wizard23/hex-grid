@@ -38,10 +38,25 @@ PDF is true to size.
   no vertices / no fills). The current state is also autosaved to the browser's
   localStorage.
 
+- **Stamps:** *Select cells* mode (click selects, click again deselects, double-click sets
+  a symmetry centre snapped to cell centres / corners / edge midpoints); "Save stamp"
+  puts the selection into a collapsible palette (IndexedDB; names auto-generated from the
+  timestamp, editable; export/import as JSON). Stamps can be placed (ghost preview, R
+  rotates, F mirrors, replace/merge), edited in a sub-editor (non-member cells locked,
+  membership editable), and used to **tile the whole grid** under any of the 14 wallpaper
+  groups a hex grid supports (p1 p2 p3 p3m1 p31m p6 p6m pm pg cm pmm pmg pgg cmm) with
+  typed axial lattice vectors, a movable centre, live preview with orbit/gap/conflict
+  counts ("first copy wins" on conflicts) and a fundamental-domain highlight. A stamp
+  remembers its symmetry; editing it then applies every change to the whole symmetry
+  orbit. Undo/redo (Ctrl+Z / Ctrl+Y) covers all of it.
+
 Implementation notes: `packages/web/src/hexgrid/` — `geometry.ts` (flat-top layout, axial
 rounding, rotation), `model.ts` (6 edge bits + 6 triangle-line bits + 7 vertex bits + 6 triangle-state bytes per
 cell; a shared edge or corner is stored once on its canonical owner), `svg.ts`
 (path/document generation,
 used by preview and export), `hit.ts` (arithmetic hover/click hit-testing), `file.ts`
-(JSON format), `HexGridScreen.tsx` (the preact screen). Plan and measurements:
+(JSON format), `transform.ts` (exact integer isometries of the hex lattice),
+`symmetry.ts` (wallpaper groups, orbit closure, tiling), `stamp.ts` + `stamps-db.ts`
+(stamp capture/placement, IndexedDB library), `select.ts`, `history.ts`,
+`HexGridScreen.tsx` + `StampPanel.tsx` (the preact screens). Plan and measurements:
 `docs/plans/2026-08-22--hex-grid-editor.md`.

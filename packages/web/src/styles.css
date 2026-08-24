@@ -491,3 +491,124 @@ input[type="checkbox"] {
     height: 60vh;
   }
 }
+
+/* stamp palette + select/place modes */
+.hexgrid.with-stamps {
+  grid-template-columns: 20rem minmax(0, 1fr) 15rem;
+}
+
+.stamp-panel {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+  max-height: calc(100vh - 7rem);
+  overflow-y: auto;
+}
+
+.stamp-panel h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.stamp-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.stamp-card.placing {
+  border-color: var(--accent);
+}
+
+.stamp-card .actions button {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+}
+
+.stamp-thumb svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 8rem;
+  border-radius: var(--radius-sm);
+}
+
+.merge-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.merge-toggle input {
+  width: auto;
+}
+
+.grid-viewport.selecting {
+  cursor: crosshair;
+}
+
+.grid-selection {
+  fill: var(--accent);
+  fill-opacity: 0.3;
+  stroke: var(--accent);
+  stroke-width: 0.5;
+  pointer-events: none;
+}
+
+.grid-centre {
+  stroke: var(--accent);
+  fill: var(--accent);
+  pointer-events: none;
+}
+
+.grid-ghost {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+@media (max-width: 70rem) {
+  .hexgrid.with-stamps {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* stamp editor */
+.grid-dim {
+  fill: var(--bg);
+  fill-opacity: 0.55;
+  pointer-events: none;
+}
+
+.stamp-edit-bar {
+  align-items: center;
+}
+
+/* tiling panel */
+.tiling-panel {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.tiling-panel h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.tiling-panel label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.vector-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
